@@ -24,9 +24,11 @@ import (
 )
 
 // Indexer is a storage interface that lets you list objects using multiple indexing functions
+// Indexer是一个存储接口，它允许你使用多个indexing function来list objects
 type Indexer interface {
 	Store
 	// Retrieve list of objects that match on the named indexing function
+	// 获取一系列的objects，匹配named indexing function
 	Index(indexName string, obj interface{}) ([]interface{}, error)
 	// IndexKeys returns the set of keys that match on the named indexing function.
 	IndexKeys(indexName, indexKey string) ([]string, error)
@@ -39,10 +41,12 @@ type Indexer interface {
 
 	// AddIndexers adds more indexers to this store.  If you call this after you already have data
 	// in the store, the results are undefined.
+	// AddIndexers在store中增加更多的indexers，如果在store中已经有data之后再调用这个函数，结果是未定义的
 	AddIndexers(newIndexers Indexers) error
 }
 
 // IndexFunc knows how to provide an indexed value for an object.
+// IndexFunc知道如何为一个object提供indexed value
 type IndexFunc func(obj interface{}) ([]string, error)
 
 // IndexFuncToKeyFuncAdapter adapts an indexFunc to a keyFunc.  This is only useful if your index function returns
@@ -69,6 +73,7 @@ const (
 )
 
 // MetaNamespaceIndexFunc is a default index function that indexes based on an object's namespace
+// MetaNamespaceIndexFunc上一个默认的index function，它基于对象的namespace进行索引
 func MetaNamespaceIndexFunc(obj interface{}) ([]string, error) {
 	meta, err := meta.Accessor(obj)
 	if err != nil {
@@ -81,6 +86,7 @@ func MetaNamespaceIndexFunc(obj interface{}) ([]string, error) {
 type Index map[string]sets.String
 
 // Indexers maps a name to a IndexFunc
+// Indexers将一个name映射到一个IndexFunc
 type Indexers map[string]IndexFunc
 
 // Indices maps a name to an Index

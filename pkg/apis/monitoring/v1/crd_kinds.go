@@ -33,6 +33,7 @@ type CrdKinds struct {
 	PrometheusRule CrdKind
 }
 
+// 默认的Crd kinds
 var DefaultCrdKinds = CrdKinds{
 	KindsString:    "",
 	Prometheus:     CrdKind{Plural: PrometheusName, Kind: PrometheusesKind, SpecName: "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.Prometheus"},

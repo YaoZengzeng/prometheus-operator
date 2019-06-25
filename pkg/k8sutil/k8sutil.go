@@ -47,6 +47,7 @@ var CustomResourceDefinitionTypeMeta metav1.TypeMeta = metav1.TypeMeta{
 }
 
 // WaitForCRDReady waits for a custom resource definition to be available for use.
+// WaitForCRDReady等待一个CRD可用
 func WaitForCRDReady(listFunc func(opts metav1.ListOptions) (runtime.Object, error)) error {
 	err := wait.Poll(3*time.Second, 10*time.Minute, func() (bool, error) {
 		_, err := listFunc(metav1.ListOptions{})
@@ -180,6 +181,7 @@ func GetMinorVersion(dclient discovery.DiscoveryInterface) (int, error) {
 	return ver.Segments()[1], nil
 }
 
+// 返回CustomResourceDefinition
 func NewCustomResourceDefinition(crdKind monitoringv1.CrdKind, group string, labels map[string]string, validation bool) *extensionsobj.CustomResourceDefinition {
 	return crdutils.NewCustomResourceDefinition(crdutils.Config{
 		SpecDefinitionName:    crdKind.SpecName,

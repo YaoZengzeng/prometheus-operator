@@ -28,10 +28,13 @@ import (
 )
 
 // AppendFunc is used to add a matching item to whatever list the caller is using
+// AppendFunc是用于增加一个matching item到调用者使用的不管哪个list
 type AppendFunc func(interface{})
 
+// 列举Store中匹配selector的所有资源对象并依次调用appendFn
 func ListAll(store Store, selector labels.Selector, appendFn AppendFunc) error {
 	selectAll := selector.Empty()
+	// 遍历List
 	for _, m := range store.List() {
 		if selectAll {
 			// Avoid computing labels of the objects to speed up common flows
@@ -39,10 +42,12 @@ func ListAll(store Store, selector labels.Selector, appendFn AppendFunc) error {
 			appendFn(m)
 			continue
 		}
+		// 获取m的metadata
 		metadata, err := meta.Accessor(m)
 		if err != nil {
 			return err
 		}
+		// 检验m的labels和selector是否匹配
 		if selector.Matches(labels.Set(metadata.GetLabels())) {
 			appendFn(m)
 		}
@@ -71,6 +76,7 @@ func ListAllByNamespace(indexer Indexer, namespace string, selector labels.Selec
 		return nil
 	}
 
+	// 从indexer中根据namespace筛选出items
 	items, err := indexer.Index(NamespaceIndex, &metav1.ObjectMeta{Namespace: namespace})
 	if err != nil {
 		// Ignore error; do slow search without index.
@@ -87,6 +93,7 @@ func ListAllByNamespace(indexer Indexer, namespace string, selector labels.Selec
 		}
 		return nil
 	}
+	// 遍历各个符合要求的items
 	for _, m := range items {
 		if selectAll {
 			// Avoid computing labels of the objects to speed up common flows

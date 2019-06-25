@@ -78,6 +78,7 @@ func makeStatefulSet(am *monitoringv1.Alertmanager, old *appsv1.StatefulSet, con
 		am.Spec.Resources.Requests[v1.ResourceMemory] = resource.MustParse("200Mi")
 	}
 
+	// 创建stateful set spec
 	spec, err := makeStatefulSetSpec(am, config)
 	if err != nil {
 		return nil, err
@@ -293,6 +294,7 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 			}
 		}
 	}
+	// 额外增加两个label，app为alertmanager，alertmanager为a.Name
 	podLabels["app"] = "alertmanager"
 	podLabels["alertmanager"] = a.Name
 
@@ -314,6 +316,7 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 	if !a.Spec.ListenLocal {
 		ports = append([]v1.ContainerPort{
 			{
+				// 如果ListenLocal为false，则创建一个port，名字为"web"，容器端口为9093
 				Name:          "web",
 				ContainerPort: 9093,
 				Protocol:      v1.ProtocolTCP,

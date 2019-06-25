@@ -163,6 +163,7 @@ func (c *controller) processLoop() {
 // ResourceEventHandler can handle notifications for events that happen to a
 // resource. The events are informational only, so you can't return an
 // error.
+// ResourceEventHandler可以处理发生在一个资源上的events的notifications
 //  * OnAdd is called when an object is added.
 //  * OnUpdate is called when an object is modified. Note that oldObj is the
 //      last known state of the object-- it is possible that several changes
@@ -170,6 +171,8 @@ func (c *controller) processLoop() {
 //      change. OnUpdate is also called when a re-list happens, and it will
 //      get called even if nothing changed. This is useful for periodically
 //      evaluating or syncing something.
+//		多个变更可能合并在一起，因此不能使用OnUpdate看到每个单独的变更
+//		OnUpdate也会在re-list发生的时候被调用，即使什么变更都没有发生也会被调用
 //  * OnDelete will get the final state of the item if it is known, otherwise
 //      it will get an object of type DeletedFinalStateUnknown. This can
 //      happen if the watch is closed and misses the delete event and we don't
@@ -254,6 +257,7 @@ func (r FilteringResourceEventHandler) OnDelete(obj interface{}) {
 // DeletionHandlingMetaNamespaceKeyFunc checks for
 // DeletedFinalStateUnknown objects before calling
 // MetaNamespaceKeyFunc.
+// DeletionHandlingMetaNamespaceKeyFunc在调用MetaNamespaceKeyFunc检测DeletedFinalStateUnknown对象
 func DeletionHandlingMetaNamespaceKeyFunc(obj interface{}) (string, error) {
 	if d, ok := obj.(DeletedFinalStateUnknown); ok {
 		return d.Key, nil

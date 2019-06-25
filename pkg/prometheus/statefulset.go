@@ -44,6 +44,7 @@ const (
 	rulesDir                        = "/etc/prometheus/rules"
 	secretsDir                      = "/etc/prometheus/secrets/"
 	configmapsDir                   = "/etc/prometheus/configmaps/"
+	// 由secret生成的configFilename为"prometheus.yaml.gz"
 	configFilename                  = "prometheus.yaml.gz"
 	configEnvsubstFilename          = "prometheus.env.yaml"
 	sSetInputHashName               = "prometheus-operator-input-hash"
@@ -55,6 +56,7 @@ var (
 	managedByOperatorLabel            = "managed-by"
 	managedByOperatorLabelValue       = "prometheus-operator"
 	managedByOperatorLabels           = map[string]string{
+		// "managed-by": "prometheus-operator"
 		managedByOperatorLabel: managedByOperatorLabelValue,
 	}
 	probeTimeoutSeconds int32 = 3
@@ -153,6 +155,7 @@ func makeStatefulSet(
 		}
 	}
 
+	// 创建statefulset的spec
 	spec, err := makeStatefulSetSpec(p, config, ruleConfigMapNames)
 	if err != nil {
 		return nil, errors.Wrap(err, "make StatefulSet spec")
@@ -191,6 +194,7 @@ func makeStatefulSet(
 	}
 	storageSpec := p.Spec.Storage
 	if storageSpec == nil {
+		// 如果storageSpec为空，则默认创建一个emptydir的volume
 		statefulset.Spec.Template.Spec.Volumes = append(statefulset.Spec.Template.Spec.Volumes, v1.Volume{
 			Name: volumeName(p.Name),
 			VolumeSource: v1.VolumeSource{
@@ -200,19 +204,23 @@ func makeStatefulSet(
 	} else if storageSpec.EmptyDir != nil {
 		emptyDir := storageSpec.EmptyDir
 		statefulset.Spec.Template.Spec.Volumes = append(statefulset.Spec.Template.Spec.Volumes, v1.Volume{
+			// 如果指定了emptydir的volume，优先创建
 			Name: volumeName(p.Name),
 			VolumeSource: v1.VolumeSource{
 				EmptyDir: emptyDir,
 			},
 		})
 	} else {
+		// 否则创建VolumeClaimTemplate
 		pvcTemplate := storageSpec.VolumeClaimTemplate
+		// 只有在pvcTemplate的名字为空时，才默认给一个名字
 		if pvcTemplate.Name == "" {
 			pvcTemplate.Name = volumeName(p.Name)
 		}
 		pvcTemplate.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce}
 		pvcTemplate.Spec.Resources = storageSpec.VolumeClaimTemplate.Spec.Resources
 		pvcTemplate.Spec.Selector = storageSpec.VolumeClaimTemplate.Spec.Selector
+		// 扩展statefulset.Spec.VolumeClaimTemplates
 		statefulset.Spec.VolumeClaimTemplates = append(statefulset.Spec.VolumeClaimTemplates, pvcTemplate)
 	}
 
@@ -222,6 +230,7 @@ func makeStatefulSet(
 func makeEmptyConfigurationSecret(p *monitoringv1.Prometheus, config Config) (*v1.Secret, error) {
 	s := makeConfigSecret(p, config)
 
+	// 创建一个empty secret
 	s.ObjectMeta.Annotations = map[string]string{
 		"empty": "true",
 	}
@@ -233,6 +242,7 @@ func makeConfigSecret(p *monitoringv1.Prometheus, config Config) *v1.Secret {
 	boolTrue := true
 	return &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
+			// secret的名字为"prometheus-{prometheus object name}"
 			Name:   configSecretName(p.Name),
 			Labels: config.Labels.Merge(managedByOperatorLabels),
 			OwnerReferences: []metav1.OwnerReference{
@@ -288,6 +298,8 @@ func makeStatefulSetService(p *monitoringv1.Prometheus, config Config) *v1.Servi
 func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapNames []string) (*appsv1.StatefulSetSpec, error) {
 	// Prometheus may take quite long to shut down to checkpoint existing data.
 	// Allow up to 10 minutes for clean termination.
+	// Prometheus可能花很长时间关闭用来checkpoint已经存在的数据
+	// 因此，允许10minutes关闭
 	terminationGracePeriod := int64(600)
 
 	versionStr := strings.TrimLeft(p.Spec.Version, "v")
@@ -399,6 +411,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	}
 
 	var securityContext *v1.PodSecurityContext = nil
+	// 指定Pod的SecurityContext
 	if p.Spec.SecurityContext != nil {
 		securityContext = p.Spec.SecurityContext
 	}
@@ -446,6 +459,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	}
 
 	localReloadURL := &url.URL{
+		// http://localhost:9090/-/reload
 		Scheme: "http",
 		Host:   c.LocalHost + ":9090",
 		Path:   path.Clean(webRoutePrefix + "/-/reload"),
@@ -456,18 +470,22 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			Name: "config",
 			VolumeSource: v1.VolumeSource{
 				Secret: &v1.SecretVolumeSource{
+					// "config"这个volume对应"prometheus-{prometheus-object-name}"这个secret
+					// 如果ServiceMonitor不为空，则Prometheus创建，否则用户自己创建
 					SecretName: configSecretName(p.Name),
 				},
 			},
 		},
 		{
 			Name: "config-out",
+			// "config-out"对应一个EmptyDir类型的volume
 			VolumeSource: v1.VolumeSource{
 				EmptyDir: &v1.EmptyDirVolumeSource{},
 			},
 		},
 	}
 
+	// 将ruleConfigMapNames作为pod的volume挂载
 	for _, name := range ruleConfigMapNames {
 		volumes = append(volumes, v1.Volume{
 			Name: name,
@@ -481,8 +499,10 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		})
 	}
 
+	// 一般volName命名为emptydir的名字
 	volName := volumeName(p.Name)
 	if p.Spec.Storage != nil {
+		// 如果Spec里指定了Storage且VolumeClaimTemplate.Name不为空，则volName为它
 		if p.Spec.Storage.VolumeClaimTemplate.Name != "" {
 			volName = p.Spec.Storage.VolumeClaimTemplate.Name
 		}
@@ -502,13 +522,16 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	}
 
 	for _, name := range ruleConfigMapNames {
+		// 配置ruleconfig的volume
 		promVolumeMounts = append(promVolumeMounts, v1.VolumeMount{
 			Name:      name,
+			// rulesDir为"/etc/prometheus/rules"
 			MountPath: rulesDir + "/" + name,
 		})
 	}
 
 	for _, s := range p.Spec.Secrets {
+		// 配置secrets的volume
 		volumes = append(volumes, v1.Volume{
 			Name: k8sutil.SanitizeVolumeName("secret-" + s),
 			VolumeSource: v1.VolumeSource{
@@ -630,6 +653,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	var additionalContainers []v1.Container
 
 	if len(ruleConfigMapNames) != 0 {
+		// 创建rules-configmap-reloader容器
 		container := v1.Container{
 			Name:  "rules-configmap-reloader",
 			Image: c.ConfigReloaderImage,
@@ -648,17 +672,20 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		}
 
 		for _, name := range ruleConfigMapNames {
+			// 挂载路径为/etc/prometheus/rules/$ruleConfigMapName
 			mountPath := rulesDir + "/" + name
 			container.VolumeMounts = append(container.VolumeMounts, v1.VolumeMount{
 				Name:      name,
 				MountPath: mountPath,
 			})
+			// 在容器的参数中指定多个--volume-dir=挂载路径
 			container.Args = append(container.Args, fmt.Sprintf("--volume-dir=%s", mountPath))
 		}
 
 		additionalContainers = append(additionalContainers, container)
 	}
 
+	// 如果设置了Thanos
 	if p.Spec.Thanos != nil {
 		thanosBaseImage := c.ThanosDefaultBaseImage
 		if p.Spec.Thanos.BaseImage != nil {
@@ -860,6 +887,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		prometheusConfigReloaderResources.Limits[v1.ResourceMemory] = resource.MustParse(c.ConfigReloaderMemory)
 	}
 
+	// 构建执行的Containers
 	operatorContainers := append([]v1.Container{
 		{
 			Name:           "prometheus",
@@ -893,6 +921,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		return nil, errors.Wrap(err, "failed to merge containers spec")
 	}
 
+	// 构建完整的StatefulSetSpec
 	return &appsv1.StatefulSetSpec{
 		ServiceName:         governingServiceName,
 		Replicas:            p.Spec.Replicas,

@@ -45,6 +45,7 @@ var (
 
 func main() {
 	app := kingpin.New("prometheus-config-reloader", "")
+	// 由reloader监听的config file
 	cfgFile := app.Flag("config-file", "config file watched by the reloader").
 		String()
 
@@ -61,6 +62,7 @@ func main() {
 		fmt.Sprintf("Log format to use. Possible values: %s", strings.Join(availableLogFormats, ", "))).
 		Default(logFormatLogfmt).String()
 
+	// 用于触发Prometheus reload重载到URL
 	reloadURL := app.Flag("reload-url", "reload URL to trigger Prometheus reload on").
 		Default("http://127.0.0.1:9090/-/reload").URL()
 
@@ -87,6 +89,7 @@ func main() {
 	var g run.Group
 	{
 		ctx, cancel := context.WithCancel(context.Background())
+		// ruleDirs为空
 		rel := reloader.New(logger, *reloadURL, *cfgFile, *cfgSubstFile, []string{})
 
 		g.Add(func() error {

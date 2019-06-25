@@ -28,9 +28,11 @@ import (
 )
 
 // Lister is any object that knows how to perform an initial list.
+// Lister是任何知道执行initial list的对象
 type Lister interface {
 	// List should return a list type object; the Items field will be extracted, and the
 	// ResourceVersion field will be used to start the watch in the right place.
+	// List应该返回一个list类型的对象；Items字段会被抽取出来，ResourceVersion会被用来从正确的地方开始watch
 	List(options metav1.ListOptions) (runtime.Object, error)
 }
 
@@ -55,6 +57,8 @@ type WatchFunc func(options metav1.ListOptions) (watch.Interface, error)
 // ListWatch knows how to list and watch a set of apiserver resources.  It satisfies the ListerWatcher interface.
 // It is a convenience function for users of NewReflector, etc.
 // ListFunc and WatchFunc must not be nil
+// ListWatch知道如何list以及watch一系列的apiserver资源，它满足ListerWatcher接口
+// 对于NewReflector的user，这是一个方便的函数
 type ListWatch struct {
 	ListFunc  ListFunc
 	WatchFunc WatchFunc

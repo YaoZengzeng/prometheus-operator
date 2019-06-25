@@ -221,6 +221,9 @@ type ObjectMeta struct {
 	// been deleted, this object will be garbage collected. If this object is managed by a controller,
 	// then an entry in this list will point to this controller, with the controller field set to true.
 	// There cannot be more than one managing controller.
+	// 这个对象依赖的一系列其他对象，如果list中的所有对象都已经被删除了，这个对象就会被gc
+	// 如果这个object由一个controller管理，那么这个list中的entry会指向这个controller，controller字段设置为true
+	// 不能有超过一个的managing controller
 	// +optional
 	// +patchMergeKey=uid
 	// +patchStrategy=merge
@@ -291,6 +294,7 @@ const (
 	// NamespaceDefault means the object is in the default namespace which is applied when not specified by clients
 	NamespaceDefault string = "default"
 	// NamespaceAll is the default argument to specify on a context when you want to list or filter resources across all namespaces
+	// NamespaceAll是默认的参数用来在上下文中指定，当你想要跨所有的namespace去list或者filter资源
 	NamespaceAll string = ""
 	// NamespaceNone is the argument for a context when there is no namespace.
 	NamespaceNone string = ""
@@ -303,6 +307,8 @@ const (
 // OwnerReference contains enough information to let you identify an owning
 // object. An owning object must be in the same namespace as the dependent, or
 // be cluster-scoped, so there is no namespace field.
+// OwnerReference包含了足够的信息让你能够识别一个owning object
+// 一个owning object必须在同一个namespace或者cluster-scoped，因此没有namespace字段
 type OwnerReference struct {
 	// API version of the referent.
 	APIVersion string `json:"apiVersion" protobuf:"bytes,5,opt,name=apiVersion"`

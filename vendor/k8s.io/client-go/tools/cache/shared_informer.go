@@ -40,6 +40,8 @@ import (
 // has advantages over the broadcaster since it allows us to share a common cache across many
 // controllers. Extending the broadcaster would have required us keep duplicate caches for each
 // watch.
+// SharedInformer有一个共享的数据缓存并且能够将缓存的变更分发到各个通过AddEventHandler注册到listeners
+// 如果使用这个对象，它的一个行为和标准的Informer相比有所不同，当你收到一个通知，缓存至少喝这个通知一样新，可能更新
 type SharedInformer interface {
 	// AddEventHandler adds an event handler to the shared informer using the shared informer's resync
 	// period.  Events to a single handler are delivered sequentially, but there is no coordination
@@ -54,8 +56,10 @@ type SharedInformer interface {
 	// GetController gives back a synthetic interface that "votes" to start the informer
 	GetController() Controller
 	// Run starts the shared informer, which will be stopped when stopCh is closed.
+	// Run启动shared informer
 	Run(stopCh <-chan struct{})
 	// HasSynced returns true if the shared informer's store has synced.
+	// HasSynced返回true，如果shared informer的store已经同步了
 	HasSynced() bool
 	// LastSyncResourceVersion is the resource version observed when last synced with the underlying
 	// store. The value returned is not synchronized with access to the underlying store and is not
@@ -66,16 +70,20 @@ type SharedInformer interface {
 type SharedIndexInformer interface {
 	SharedInformer
 	// AddIndexers add indexers to the informer before it starts.
+	// AddIndexers在informer启动之前往里面添加indexers
 	AddIndexers(indexers Indexers) error
+	// 获取相应的Indexer
 	GetIndexer() Indexer
 }
 
 // NewSharedInformer creates a new instance for the listwatcher.
+// NewSharedInformer为listwatcher创建一个新的实例
 func NewSharedInformer(lw ListerWatcher, objType runtime.Object, resyncPeriod time.Duration) SharedInformer {
 	return NewSharedIndexInformer(lw, objType, resyncPeriod, Indexers{})
 }
 
 // NewSharedIndexInformer creates a new instance for the listwatcher.
+// NewSharedIndexInformer为listwatcher创建一个新的实例
 func NewSharedIndexInformer(lw ListerWatcher, objType runtime.Object, defaultEventHandlerResyncPeriod time.Duration, indexers Indexers) SharedIndexInformer {
 	realClock := &clock.RealClock{}
 	sharedIndexInformer := &sharedIndexInformer{

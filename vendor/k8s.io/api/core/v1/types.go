@@ -2802,6 +2802,8 @@ type PodSpec struct {
 	// init container fails, the pod is considered to have failed and is handled according
 	// to its restartPolicy. The name for an init container or normal container must be
 	// unique among all containers.
+	// Init containers在containers启动之前执行，如果任何的init container执行失败了，pod会被认为failed
+	// 并且会根据restartPolicy进行处理
 	// Init containers may not have Lifecycle actions, Readiness probes, or Liveness probes.
 	// The resourceRequirements of an init container are taken into account during scheduling
 	// by finding the highest request/limit for each resource type, and then using the max of
@@ -3005,6 +3007,8 @@ type PodSecurityContext struct {
 	// May also be set in SecurityContext.  If set in both SecurityContext and
 	// PodSecurityContext, the value specified in SecurityContext takes precedence
 	// for that container.
+	// 容器中的进程运行的UID,默认是在镜像元数据中指定的user，但是如果SecurityContext和PodSecurityContext
+	// 同时指定，以SecurityContext优先
 	// +optional
 	RunAsUser *int64 `json:"runAsUser,omitempty" protobuf:"varint,2,opt,name=runAsUser"`
 	// The GID to run the entrypoint of the container process.
@@ -5110,6 +5114,7 @@ type ConfigMap struct {
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// Data contains the configuration data.
+	// Data包含了配置数据
 	// Each key must consist of alphanumeric characters, '-', '_' or '.'.
 	// Values with non-UTF-8 byte sequences must use the BinaryData field.
 	// The keys stored in Data must not overlap with the keys in

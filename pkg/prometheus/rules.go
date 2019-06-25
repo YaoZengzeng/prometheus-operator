@@ -41,6 +41,7 @@ const labelPrometheusName = "prometheus-name"
 var maxConfigMapDataSize = int(float64(v1.MaxSecretSize) * 0.5)
 
 func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]string, error) {
+	// 获取prometheus资源对象所在的namespace的ConfigMap client
 	cClient := c.kclient.CoreV1().ConfigMaps(p.Namespace)
 
 	namespaces, err := c.selectRuleNamespaces(p)
@@ -48,11 +49,14 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 		return nil, err
 	}
 
+	// 获取新的rule对象
 	newRules, err := c.selectRules(p, namespaces)
 	if err != nil {
 		return nil, err
 	}
 
+	// 获取当前的config map list
+	// 所有包含"prometheus-name"为p.name的label的ConfigMap
 	currentConfigMapList, err := cClient.List(prometheusRulesConfigMapSelector(p.Name))
 	if err != nil {
 		return nil, err
@@ -60,14 +64,18 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 	currentConfigMaps := currentConfigMapList.Items
 
 	currentRules := map[string]string{}
+	// 从若干个ConfigMap中找到所有的rulefiles
 	for _, cm := range currentConfigMaps {
 		for ruleFileName, ruleFile := range cm.Data {
+			// 从configmap中找到rules
 			currentRules[ruleFileName] = ruleFile
 		}
 	}
 
+	// 比较新的Prometheus Rule和当前Rules在ConfigMap中的值是否相等
 	equal := reflect.DeepEqual(newRules, currentRules)
 	if equal && len(currentConfigMaps) != 0 {
+		// PrometheusRule没有发生改变，则直接将对应的ConfigMaps返回
 		level.Debug(c.logger).Log(
 			"msg", "no PrometheusRule changes",
 			"namespace", p.Namespace,
@@ -77,9 +85,11 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 		for _, cm := range currentConfigMaps {
 			currentConfigMapNames = append(currentConfigMapNames, cm.Name)
 		}
+		// 返回当前所有包含Rules的ConfigMaps的名字
 		return currentConfigMapNames, nil
 	}
 
+	// 根据rules创建新的ConfigMap
 	newConfigMaps, err := makeRulesConfigMaps(p, newRules)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to make rules ConfigMaps")
@@ -91,6 +101,7 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 	}
 
 	if len(currentConfigMaps) == 0 {
+		// 当前不存在任何的ConfigMaps
 		level.Debug(c.logger).Log(
 			"msg", "no PrometheusRule configmap found, creating new one",
 			"namespace", p.Namespace,
@@ -107,6 +118,8 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 
 	// Simply deleting old ConfigMaps and creating new ones for now. Could be
 	// replaced by logic that only deletes obsolete ConfigMaps in the future.
+	// 现在只是简单的删除老的ConfigMaps并且创建新的
+	// 可以在以后用新的逻辑替换：只删除过时的ConfigMaps
 	for _, cm := range currentConfigMaps {
 		err := cClient.Delete(cm.Name, &metav1.DeleteOptions{})
 		if err != nil {
@@ -119,6 +132,7 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 		"namespace", p.Namespace,
 		"prometheus", p.Name,
 	)
+	// 创建新的ConfigMaps
 	for _, cm := range newConfigMaps {
 		_, err = cClient.Create(&cm)
 		if err != nil {
@@ -126,10 +140,12 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 		}
 	}
 
+	// 创建新的rules的configmap
 	return newConfigMapNames, nil
 }
 
 func prometheusRulesConfigMapSelector(prometheusName string) metav1.ListOptions {
+	// "prometheus-name" = prometheusName
 	return metav1.ListOptions{LabelSelector: fmt.Sprintf("%v=%v", labelPrometheusName, prometheusName)}
 }
 
@@ -137,6 +153,7 @@ func (c *Operator) selectRuleNamespaces(p *monitoringv1.Prometheus) ([]string, e
 	namespaces := []string{}
 
 	// If 'RuleNamespaceSelector' is nil, only check own namespace.
+	// 如果'RuleNamespaceSelector'为nil，则只检查自己的namespace
 	if p.Spec.RuleNamespaceSelector == nil {
 		namespaces = append(namespaces, p.Namespace)
 	} else {
@@ -164,20 +181,26 @@ func (c *Operator) selectRuleNamespaces(p *monitoringv1.Prometheus) ([]string, e
 func (c *Operator) selectRules(p *monitoringv1.Prometheus, namespaces []string) (map[string]string, error) {
 	rules := map[string]string{}
 
+	// 获取prometheus资源对象中指定的ruleSelector
 	ruleSelector, err := metav1.LabelSelectorAsSelector(p.Spec.RuleSelector)
 	if err != nil {
 		return rules, errors.Wrap(err, "convert rule label selector to selector")
 	}
 
+	// 遍历选定的各个namespaces
 	for _, ns := range namespaces {
 		var marshalErr error
+		// 根据namespace以及ruleSelector获取所有的PrometheusRule
+		// 最后一个参数为扩展函数，它的参数是经过筛选，合法的资源对象
 		err := cache.ListAllByNamespace(c.ruleInf.GetIndexer(), ns, ruleSelector, func(obj interface{}) {
 			rule := obj.(*monitoringv1.PrometheusRule)
+			// 将PrometheusRule的内容进行编码
 			content, err := yaml.Marshal(rule.Spec)
 			if err != nil {
 				marshalErr = err
 				return
 			}
+			// rule文件的名字作为key，内容作为value
 			rules[fmt.Sprintf("%v-%v.yaml", rule.Namespace, rule.Name)] = string(content)
 		})
 		if err != nil {
@@ -190,6 +213,7 @@ func (c *Operator) selectRules(p *monitoringv1.Prometheus, namespaces []string) 
 
 	ruleNames := []string{}
 	for name := range rules {
+		// 收集rule的names
 		ruleNames = append(ruleNames, name)
 	}
 
@@ -200,16 +224,21 @@ func (c *Operator) selectRules(p *monitoringv1.Prometheus, namespaces []string) 
 		"prometheus", p.Name,
 	)
 
+	// 返回的对象是rules，包含rule的名字和rule的内容
 	return rules, nil
 }
 
 // makeRulesConfigMaps takes a Prometheus configuration and rule files and
 // returns a list of Kubernetes ConfigMaps to be later on mounted into the
 // Prometheus instance.
+// makeRulesConfigMaps根据一个Prometheus configuration以及rule files，返回一系列的
+// Kubernetes ConfigMaps，从而在之后被挂载到Prometheus实例中
 // If the total size of rule files exceeds the Kubernetes ConfigMap limit,
 // they are split up via the simple first-fit [1] bin packing algorithm. In the
 // future this can be replaced by a more sophisticated algorithm, but for now
 // simplicity should be sufficient.
+// 如果rule files的总体大小超过Kubernetes ConfigMap的大小限制
+// 它们通过简单的first-fit bin packing算法进行划分
 // [1] https://en.wikipedia.org/wiki/Bin_packing_problem#First-fit_algorithm
 func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string) ([]v1.ConfigMap, error) {
 	//check if none of the rule files is too large for a single ConfigMap
@@ -247,6 +276,7 @@ func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string
 	ruleFileConfigMaps := []v1.ConfigMap{}
 	for i, bucket := range buckets {
 		cm := makeRulesConfigMap(p, bucket)
+		// 
 		cm.Name = cm.Name + "-" + strconv.Itoa(i)
 		ruleFileConfigMaps = append(ruleFileConfigMaps, cm)
 	}
@@ -263,9 +293,11 @@ func bucketSize(bucket map[string]string) int {
 	return totalSize
 }
 
+// 构建Rules相关的ConfigMap
 func makeRulesConfigMap(p *monitoringv1.Prometheus, ruleFiles map[string]string) v1.ConfigMap {
 	boolTrue := true
 
+	// ConfigMap包含一个label，即"prometheus-name": p.Name
 	labels := map[string]string{labelPrometheusName: p.Name}
 	for k, v := range managedByOperatorLabels {
 		labels[k] = v
@@ -273,6 +305,7 @@ func makeRulesConfigMap(p *monitoringv1.Prometheus, ruleFiles map[string]string)
 
 	return v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
+			// ConfigMap的名字是固定的?
 			Name:   prometheusRuleConfigMapName(p.Name),
 			Labels: labels,
 			OwnerReferences: []metav1.OwnerReference{

@@ -121,6 +121,7 @@ func init() {
 	// Prometheus Operator image, tagged with the same semver version. Default to
 	// the Prometheus Operator version if no Prometheus config reloader image is
 	// specified.
+	// 可以在初始配置中设定prometheus-config-reloader，prometheus-default-base-image以及config-reload-image的信息
 	flagset.StringVar(&cfg.PrometheusConfigReloaderImage, "prometheus-config-reloader", fmt.Sprintf("quay.io/coreos/prometheus-config-reloader:v%v", version.Version), "Prometheus config reloader image")
 	flagset.StringVar(&cfg.ConfigReloaderImage, "config-reloader-image", "quay.io/coreos/configmap-reload:v0.0.1", "Reload Image")
 	flagset.StringVar(&cfg.ConfigReloaderCPU, "config-reloader-cpu", "100m", "Config Reloader CPU. Value \"0\" disables it and causes no limit to be configured.")
@@ -134,8 +135,11 @@ func init() {
 	flagset.Var(&cfg.CrdKinds, "crd-kinds", " - EXPERIMENTAL (could be removed in future releases) - customize CRD kind names")
 	flagset.BoolVar(&cfg.EnableValidation, "with-validation", true, "Include the validation spec in the CRD")
 	flagset.StringVar(&cfg.LocalHost, "localhost", "localhost", "EXPERIMENTAL (could be removed in future releases) - Host used to communicate between local services on a pod. Fixes issues where localhost resolves incorrectly.")
+	// 使用的log级别，默认的级别是logLevelInfo
 	flagset.StringVar(&cfg.LogLevel, "log-level", logLevelInfo, fmt.Sprintf("Log level to use. Possible values: %s", strings.Join(availableLogLevels, ", ")))
 	flagset.StringVar(&cfg.LogFormat, "log-format", logFormatLogfmt, fmt.Sprintf("Log format to use. Possible values: %s", strings.Join(availableLogFormats, ", ")))
+	// ManagerCRDs为true，表明由Prometheus Operator管理所有的CRDs
+	// Operator会自动对各个CRD进行创建
 	flagset.BoolVar(&cfg.ManageCRDs, "manage-crds", true, "Manage all CRDs with the Prometheus Operator.")
 	flagset.StringVar(&cfg.PromSelector, "prometheus-instance-selector", "", "Label selector to filter Prometheus CRDs to manage")
 	flagset.Parse(os.Args[1:])
@@ -169,12 +173,14 @@ func Main() int {
 
 	logger.Log("msg", fmt.Sprintf("Starting Prometheus Operator version '%v'.", version.Version))
 
+	// 创建prometheus operator
 	po, err := prometheuscontroller.New(cfg, log.With(logger, "component", "prometheusoperator"))
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating prometheus controller failed: ", err)
 		return 1
 	}
 
+	// 创建alertmanager operator
 	ao, err := alertmanagercontroller.New(cfg, log.With(logger, "component", "alertmanageroperator"))
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating alertmanager controller failed: ", err)

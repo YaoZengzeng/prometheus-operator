@@ -69,11 +69,13 @@ func main() {
 		log.Fatalf("failed to decode manifest: %v", err.Error())
 	}
 
+	// 将ConfigMap转化为rule file crds
 	ruleFiles, err := CMToRule(&configMap)
 	if err != nil {
 		log.Fatalf("failed to transform ConfigMap to rule file crds: %v", err.Error())
 	}
 
+	// 将yaml manifest写入rule file
 	for _, ruleFile := range ruleFiles {
 		encodedRuleFile, err := yaml.Marshal(ruleFile)
 		if err != nil {
@@ -90,10 +92,12 @@ func main() {
 // CMToRule takes a rule ConfigMap and transforms it to possibly multiple
 // rule file crds. It is used in `cmd/po-rule-cm-to-rule-file-crds`. Thereby it
 // needs to be public.
+// CMToRule把一个rule ConfigMap转化为可能的多个rule file crds
 func CMToRule(cm *v1.ConfigMap) ([]monitoringv1.PrometheusRule, error) {
 	rules := []monitoringv1.PrometheusRule{}
 
 	for name, content := range cm.Data {
+		// 转换为PrometheusRuleSpec
 		ruleSpec := monitoringv1.PrometheusRuleSpec{}
 
 		if err := k8sYAML.NewYAMLOrJSONDecoder(bytes.NewBufferString(content), 1000).Decode(&ruleSpec); err != nil {

@@ -75,6 +75,7 @@ import (
 // Reloader can watch config files and trigger reloads of a Prometheus server.
 // It optionally substitutes environment variables in the configuration.
 // Referenced environment variables must be of the form `$(var)` (not `$var` or `${var}`).
+// Reloader会监听config files并且触发Prometheus server的重载
 type Reloader struct {
 	logger        log.Logger
 	reloadURL     *url.URL
@@ -92,6 +93,7 @@ var firstGzipBytes = []byte{0x1f, 0x8b, 0x08}
 
 // New creates a new reloader that watches the given config file and rule directory
 // and triggers a Prometheus reload upon changes.
+// New创建一个新的reloader，它会监控给定的配置文件以及rule direcotry，并且在有变更的时候触发Prometheus
 // If cfgOutputFile is not empty the config file will be decompressed if needed, environment variables
 // will be substituted and the output written into the given path. Prometheus should then use
 // cfgOutputFile as its config file path.
@@ -181,7 +183,9 @@ func (r *Reloader) Watch(ctx context.Context) error {
 
 // apply triggers Prometheus reload if rules or config changed. If cfgOutputFile is set, we also
 // expand env vars into config file before reloading.
-// Reload is retried in retryInterval until watchInterval.
+// Reload is retried in retryInterval until watchInterval
+// 如果rules或者config发生了改变则触发Prometheus进行reload，如果指定了cfgOutputFile，我们会在reloading之前
+// 将env vars写入config file
 func (r *Reloader) apply(ctx context.Context) error {
 	var (
 		cfgHash  []byte

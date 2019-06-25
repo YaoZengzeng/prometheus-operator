@@ -28,6 +28,7 @@ import (
 
 // LabelSelectorAsSelector converts the LabelSelector api type into a struct that implements
 // labels.Selector
+// LabelSelectorAsSelector将LabelSelector这个api类型转换为一个实现了labels.Selector的结构
 // Note: This function should be kept in sync with the selector methods in pkg/labels/selector.go
 func LabelSelectorAsSelector(ps *LabelSelector) (labels.Selector, error) {
 	if ps == nil {

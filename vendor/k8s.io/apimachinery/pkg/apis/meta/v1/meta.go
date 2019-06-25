@@ -30,6 +30,8 @@ type ObjectMetaAccessor interface {
 // internal API objects. Attempting to set or retrieve a field on an object that does
 // not support that field (Name, UID, Namespace on lists) will be a no-op and return
 // a default value.
+// Object让你能够知道任何versioned或者internal API objects的元数据
+// 尝试设置或者获取那些不支持某些字段的对象，将会是一个空操作并且返回一个默认的值
 type Object interface {
 	GetNamespace() string
 	SetNamespace(namespace string)
