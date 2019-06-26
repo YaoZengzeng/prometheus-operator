@@ -649,6 +649,8 @@ func copyDeltas(d Deltas) Deltas {
 // an object was deleted but the watch deletion event was missed. In this
 // case we don't know the final "resting" state of the object, so there's
 // a chance the included `Obj` is stale.
+// DeletedFinalStateUnknown会放在DeltaFIFO中，万一一个对象已经被删除了，但是deletion event已经丢失了
+// 在这种情况下，我们就不知道这个对象最终的"resting" state，因此有可能包含的`Obj`已经过时了
 type DeletedFinalStateUnknown struct {
 	Key string
 	Obj interface{}

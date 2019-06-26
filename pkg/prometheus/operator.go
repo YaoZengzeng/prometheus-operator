@@ -803,6 +803,7 @@ func (c *Operator) handleConfigMapUpdate(old, cur interface{}) {
 	}
 }
 
+// 从obj这个接口类型中转换出metav1.Object
 func (c *Operator) getObject(obj interface{}) (metav1.Object, bool) {
 	ts, ok := obj.(cache.DeletedFinalStateUnknown)
 	if ok {
@@ -841,6 +842,7 @@ func (c *Operator) enqueue(obj interface{}) {
 // enqueueForNamespace enqueues all Prometheus object keys that belong to the
 // given namespace or select objects in the given namespace.
 // enqueueForNamespace为所有属于给定namespace的Prometheus object keys或者为给定namespace选择object
+// 一旦有configmap, statefulset等资源对象变更，就获取该资源对象的namespace，入队，再观察是否有对应的Prometheus对象需要更新
 func (c *Operator) enqueueForNamespace(nsName string) {
 	nsObject, exists, err := c.nsInf.GetStore().GetByKey(nsName)
 	if err != nil {
@@ -1520,6 +1522,7 @@ func (c *Operator) selectServiceMonitors(p *monitoringv1.Prometheus) (map[string
 
 // listMatchingNamespaces lists all the namespaces that match the provided
 // selector.
+// listMatchingNamespaces列举所有匹配提供的selector的namespaces
 func (c *Operator) listMatchingNamespaces(selector labels.Selector) ([]string, error) {
 	var ns []string
 	err := cache.ListAll(c.nsInf.GetStore(), selector, func(obj interface{}) {

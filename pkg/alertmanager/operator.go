@@ -400,6 +400,7 @@ func (c *Operator) handleStatefulSetDelete(obj interface{}) {
 }
 
 func (c *Operator) handleStatefulSetAdd(obj interface{}) {
+	// 从StatefulSet的key找到对应的Alertmanager的key
 	if a := c.alertmanagerForStatefulSet(obj); a != nil {
 		c.enqueue(a)
 	}
@@ -424,6 +425,7 @@ func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 }
 
 func (c *Operator) sync(key string) error {
+	// 根据key找到alertmanager
 	obj, exists, err := c.alrtInf.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
@@ -434,6 +436,8 @@ func (c *Operator) sync(key string) error {
 		// Doing so just based on the deletion event is not reliable, so
 		// we have to garbage collect the controller-created resources
 		// in some other way.
+		// 这么做的原因基于的是deletion event是不可靠的，因此我们需要对controller创建的
+		// 资源进行垃圾回收，以某种方式
 		//
 		// Let's rely on the index key matching that of the created
 		// configmap and replica
