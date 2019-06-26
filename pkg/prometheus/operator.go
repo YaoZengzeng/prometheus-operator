@@ -719,6 +719,7 @@ func (c *Operator) handlePmonDelete(obj interface{}) {
 }
 
 // TODO: Don't enque just for the namespace
+/*
 func (c *Operator) handleRuleAdd(obj interface{}) {
 	o, ok := c.getObject(obj)
 	if ok {
@@ -727,6 +728,28 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 
 		c.enqueueForNamespace(o.GetNamespace())
 	}
+}*/
+
+func (c *Operator) handleRuleAdd(obj interface{}) {
+	r := obj.(*monitoringv1.PrometheusRule)
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("PrometheusRule added: %v", r))
+
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: r.Labels})
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
+	}
+
+	ssets := []string{}
+	err = cache.ListAll(c.ssetInf.GetStore(), selector, func(obj interface{}) {
+		sset := obj.(*appsv1.StatefulSet)
+		ssets = append(ssets, fmt.Sprintf("%v-%v", sset.Namespace, sset.Name))
+	})
+	if err != nil {
+		level.Error(c.logger).Log("error", "cache.ListAll failed in handleRuleAdd")
+		return
+	}
+
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssets))
 }
 
 // TODO: Don't enque just for the namespace
