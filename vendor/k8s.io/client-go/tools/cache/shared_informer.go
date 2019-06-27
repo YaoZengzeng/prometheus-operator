@@ -88,6 +88,7 @@ func NewSharedIndexInformer(lw ListerWatcher, objType runtime.Object, defaultEve
 	realClock := &clock.RealClock{}
 	sharedIndexInformer := &sharedIndexInformer{
 		processor:                       &sharedProcessor{clock: realClock},
+										 // DeletionHandlingMetaNamespaceKeyFunc是一个keyFunc，能够传入一个对象，得到它的key，一般为namespace/name的形式
 		indexer:                         NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, indexers),
 		listerWatcher:                   lw,
 		objectType:                      objType,
@@ -107,6 +108,7 @@ const (
 	syncedPollPeriod = 100 * time.Millisecond
 
 	// initialBufferSize is the initial number of event notifications that can be buffered.
+	// initialBufferSize是可以缓存的初始的event notifications的数目
 	initialBufferSize = 1024
 )
 
@@ -133,6 +135,7 @@ func WaitForCacheSync(stopCh <-chan struct{}, cacheSyncs ...InformerSynced) bool
 }
 
 type sharedIndexInformer struct {
+	// indexer是真正缓存对象的地方
 	indexer    Indexer
 	controller Controller
 
@@ -145,6 +148,8 @@ type sharedIndexInformer struct {
 
 	// resyncCheckPeriod is how often we want the reflector's resync timer to fire so it can call
 	// shouldResync to check if any of our listeners need a resync.
+	// resyncCheckPeriod是我们想要reflector的resync timer触发的频率，因此它可以调用shouldResync
+	// 来检查是否我们的任何listeners需要一个resync
 	resyncCheckPeriod time.Duration
 	// defaultEventHandlerResyncPeriod is the default resync period for any handlers added via
 	// AddEventHandler (i.e. they don't specify one and just want to use the shared informer's default
@@ -207,6 +212,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		RetryOnError:     false,
 		ShouldResync:     s.processor.shouldResync,
 
+		// Process方法上informer的HandleDeltas
 		Process: s.HandleDeltas,
 	}
 
@@ -220,6 +226,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	}()
 
 	// Separate stop channel because Processor should be stopped strictly after controller
+	// 分开stop channel，因为Processor应该严格地在controller之后停止
 	processorStopCh := make(chan struct{})
 	var wg wait.Group
 	defer wg.Wait()              // Wait for Processor to stop
@@ -255,6 +262,7 @@ func (s *sharedIndexInformer) LastSyncResourceVersion() string {
 	return s.controller.LastSyncResourceVersion()
 }
 
+// GetStore返回的就是sharedIndexInformer的indexer
 func (s *sharedIndexInformer) GetStore() Store {
 	return s.indexer
 }
@@ -328,9 +336,11 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 		}
 	}
 
+	// 创建新的Process Listener
 	listener := newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize)
 
 	if !s.started {
+		// 如果informer还没有启动，直接在processor中加入listener并返回
 		s.processor.addListener(listener)
 		return
 	}
@@ -345,6 +355,7 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 
 	s.processor.addListener(listener)
 	for _, item := range s.indexer.List() {
+		// 在listener中加入notification
 		listener.add(addNotification{newObj: item})
 	}
 }
@@ -354,26 +365,32 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	defer s.blockDeltas.Unlock()
 
 	// from oldest to newest
+	// 从最老到最新
 	for _, d := range obj.(Deltas) {
 		switch d.Type {
 		case Sync, Added, Updated:
 			isSync := d.Type == Sync
 			s.cacheMutationDetector.AddObject(d.Object)
+			// 如果对象在indexer中存在，则更新indexer，并且分发到各个processor
 			if old, exists, err := s.indexer.Get(d.Object); err == nil && exists {
 				if err := s.indexer.Update(d.Object); err != nil {
 					return err
 				}
+				// 发送一个updateNotification
 				s.processor.distribute(updateNotification{oldObj: old, newObj: d.Object}, isSync)
 			} else {
+				// 否则在indexer中增加对象
 				if err := s.indexer.Add(d.Object); err != nil {
 					return err
 				}
+				// 发送一个addNotification
 				s.processor.distribute(addNotification{newObj: d.Object}, isSync)
 			}
 		case Deleted:
 			if err := s.indexer.Delete(d.Object); err != nil {
 				return err
 			}
+			// 如果变更的类型为Deleted，则发送一个deleteNotification
 			s.processor.distribute(deleteNotification{oldObj: d.Object}, false)
 		}
 	}
@@ -410,10 +427,12 @@ func (p *sharedProcessor) distribute(obj interface{}, sync bool) {
 	defer p.listenersLock.RUnlock()
 
 	if sync {
+		// 如果sync为true，加入syncingListeners
 		for _, listener := range p.syncingListeners {
 			listener.add(obj)
 		}
 	} else {
+		// 如果sync为false，加入listeners
 		for _, listener := range p.listeners {
 			listener.add(obj)
 		}
@@ -424,6 +443,7 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 	func() {
 		p.listenersLock.RLock()
 		defer p.listenersLock.RUnlock()
+		// 遍历sharedProcessor的各个listeners
 		for _, listener := range p.listeners {
 			p.wg.Start(listener.run)
 			p.wg.Start(listener.pop)
@@ -441,6 +461,7 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 
 // shouldResync queries every listener to determine if any of them need a resync, based on each
 // listener's resyncPeriod.
+// shouldResync询问每个listener来决定它们是否需要resync，基于每个listener的resyncPeriod
 func (p *sharedProcessor) shouldResync() bool {
 	p.listenersLock.Lock()
 	defer p.listenersLock.Unlock()
@@ -511,6 +532,7 @@ func newProcessListener(handler ResourceEventHandler, requestedResyncPeriod, res
 	return ret
 }
 
+// add()方法往listener中添加notification
 func (p *processorListener) add(notification interface{}) {
 	p.addCh <- notification
 }
@@ -525,6 +547,7 @@ func (p *processorListener) pop() {
 		select {
 		case nextCh <- notification:
 			// Notification dispatched
+			// 分发notification
 			var ok bool
 			notification, ok = p.pendingNotifications.ReadOne()
 			if !ok { // Nothing to pop
@@ -537,6 +560,7 @@ func (p *processorListener) pop() {
 			if notification == nil { // No notification to pop (and pendingNotifications is empty)
 				// Optimize the case - skip adding to pendingNotifications
 				notification = notificationToAdd
+				// 将nextCh设置为p.nextCh
 				nextCh = p.nextCh
 			} else { // There is already a notification waiting to be dispatched
 				p.pendingNotifications.WriteOne(notificationToAdd)
@@ -553,9 +577,12 @@ func (p *processorListener) run() {
 	stopCh := make(chan struct{})
 	wait.Until(func() {
 		// this gives us a few quick retries before a long pause and then a few more quick retries
+		// 这让我们能在一个long pause之前进行一些重试并且之后能够进行更快地重拾
 		err := wait.ExponentialBackoff(retry.DefaultRetry, func() (bool, error) {
+			// 从p.nextCh中获取notification
 			for next := range p.nextCh {
 				switch notification := next.(type) {
+					// 调用相应地handler进行处理
 				case updateNotification:
 					p.handler.OnUpdate(notification.oldObj, notification.newObj)
 				case addNotification:

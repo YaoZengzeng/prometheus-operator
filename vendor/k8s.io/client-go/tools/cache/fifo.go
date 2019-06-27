@@ -25,6 +25,8 @@ import (
 
 // PopProcessFunc is passed to Pop() method of Queue interface.
 // It is supposed to process the element popped from the queue.
+// PopProcessFunc传递给Queue接口的Pop()方法
+// 它应该能够处理从队列中pop出来的元素
 type PopProcessFunc func(interface{}) error
 
 // ErrRequeue may be returned by a PopProcessFunc to safely requeue
@@ -99,8 +101,11 @@ type FIFO struct {
 
 	// populated is true if the first batch of items inserted by Replace() has been populated
 	// or Delete/Add/Update was called first.
+	// populated为true，如果第一批由Replace()插入的items已经填充了
+	// 或者Delete/Add/Update首先被调用了
 	populated bool
 	// initialPopulationCount is the number of items inserted by the first call of Replace()
+	// initialPopulationCount上第一次调用Replace()插入的items的数目
 	initialPopulationCount int
 
 	// keyFunc is used to make the key used for queued item insertion and retrieval, and
@@ -258,6 +263,9 @@ func (f *FIFO) IsClosed() bool {
 // so if you don't successfully process it, it should be added back with
 // AddIfNotPresent(). process function is called under lock, so it is safe
 // update data structures in it that need to be in sync with the queue.
+// Pop等待直到一个item准备好并且处理它，如果多个items准备好了，它们按照它们添加或者更新的顺序返回
+// item在它被处理之前从队列（以及store）中移除，因此如果没有成功处理它，它应该被AddIfNotPresent()
+// 增加回队列中
 func (f *FIFO) Pop(process PopProcessFunc) (interface{}, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -326,6 +334,7 @@ func (f *FIFO) Replace(list []interface{}, resourceVersion string) error {
 }
 
 // Resync will touch all objects to put them into the processing queue
+// Resync会接触所有的对象，将它们放入processing queue
 func (f *FIFO) Resync() error {
 	f.lock.Lock()
 	defer f.lock.Unlock()

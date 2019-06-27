@@ -87,9 +87,12 @@ func NewFilteredUnprivilegedNamespaceListWatchFromClient(c cache.Getter, namespa
 // MultiNamespaceListerWatcher takes a list of namespaces and a
 // cache.ListerWatcher generator func and returns a single cache.ListerWatcher
 // capable of operating on multiple namespaces.
+// MultiNamespaceListerWatcher根据一系列的namespace和一个cache.ListerWatcher的生成函数
+// 返回单个的cache.ListerWatcher，它能够在多个namespaces上进行操作
 func MultiNamespaceListerWatcher(namespaces []string, f func(string) cache.ListerWatcher) cache.ListerWatcher {
 	// If there is only one namespace then there is no need to create a
 	// proxy.
+	// 如果只有一个namepace，不需要做proxy
 	if len(namespaces) == 1 {
 		return f(namespaces[0])
 	}

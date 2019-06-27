@@ -48,6 +48,7 @@ type Store interface {
 	// Replace will delete the contents of the store, using instead the
 	// given list. Store takes ownership of the list, you should not reference
 	// it after calling this function.
+	// Replace会删除store中的内容，转而使用给定的list
 	Replace([]interface{}, string) error
 	Resync() error
 }
@@ -116,11 +117,16 @@ func SplitMetaNamespaceKey(key string) (namespace, name string, err error) {
 // cache responsibilities are limited to:
 //	1. Computing keys for objects via keyFunc
 //  2. Invoking methods of a ThreadSafeStorage interface
+// cache的职责仅限于：
+//  1. 通过keyFunc为对象计算keys
+//  2. 调用ThreadSafeStorage的接口
 type cache struct {
 	// cacheStorage bears the burden of thread safety for the cache
+	// cacheStorage承担着cache的线程安全的责任
 	cacheStorage ThreadSafeStore
 	// keyFunc is used to make the key for objects stored in and retrieved from items, and
 	// should be deterministic.
+	// keyFunc用来创建从items存取对象的key，并且应该是决定性的
 	keyFunc KeyFunc
 }
 
@@ -175,6 +181,7 @@ func (c *cache) GetIndexers() Indexers {
 
 // Index returns a list of items that match on the index function
 // Index is thread-safe so long as you treat all items as immutable
+// Index返回一系列匹配index function的items
 func (c *cache) Index(indexName string, obj interface{}) ([]interface{}, error) {
 	return c.cacheStorage.Index(indexName, obj)
 }
@@ -208,6 +215,8 @@ func (c *cache) Get(obj interface{}) (item interface{}, exists bool, err error) 
 
 // GetByKey returns the request item, or exists=false.
 // GetByKey is completely threadsafe as long as you treat all items as immutable.
+// GetByKey返回请求的item，或者exists为false
+// GetByKey是完全线程安全的，只要将所有的返回的items都为immutable
 func (c *cache) GetByKey(key string) (item interface{}, exists bool, err error) {
 	item, exists = c.cacheStorage.Get(key)
 	return item, exists, nil
@@ -216,6 +225,8 @@ func (c *cache) GetByKey(key string) (item interface{}, exists bool, err error) 
 // Replace will delete the contents of 'c', using instead the given list.
 // 'c' takes ownership of the list, you should not reference the list again
 // after calling this function.
+// Replace会删除'c'中的内容，转而使用给定的list，'c'将占据list的使用，在调用了这个函数之后
+// 就不能再引用这个list了
 func (c *cache) Replace(list []interface{}, resourceVersion string) error {
 	items := make(map[string]interface{}, len(list))
 	for _, item := range list {

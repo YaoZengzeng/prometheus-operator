@@ -33,19 +33,25 @@ const (
 )
 
 // Volume represents a named volume in a pod that may be accessed by any container in the pod.
+// Volume代表pod中的一个命名卷，可以被pod中的任何container访问
 type Volume struct {
 	// Volume's name.
+	// Volume的名字
 	// Must be a DNS_LABEL and unique within the pod.
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
 	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
 	// VolumeSource represents the location and type of the mounted volume.
 	// If not specified, the Volume is implied to be an EmptyDir.
 	// This implied behavior is deprecated and will be removed in a future version.
+	// VolumeSource代表被挂载的volume的位置和类型
+	// 如果没有指定，Volume默认为EmptyDir
 	VolumeSource `json:",inline" protobuf:"bytes,2,opt,name=volumeSource"`
 }
 
 // Represents the source of a volume to mount.
 // Only one of its members may be specified.
+// VolumeSource代表挂载的卷的source
+// 只能指定其中的一个member
 type VolumeSource struct {
 	// HostPath represents a pre-existing file or directory on the host
 	// machine that is directly exposed to the container. This is generally
@@ -127,6 +133,7 @@ type VolumeSource struct {
 	// +optional
 	AzureFile *AzureFileVolumeSource `json:"azureFile,omitempty" protobuf:"bytes,18,opt,name=azureFile"`
 	// ConfigMap represents a configMap that should populate this volume
+	// ConfigMap代表用一个configMap填充这个卷
 	// +optional
 	ConfigMap *ConfigMapVolumeSource `json:"configMap,omitempty" protobuf:"bytes,19,opt,name=configMap"`
 	// VsphereVolume represents a vSphere volume attached and mounted on kubelets host machine
@@ -5136,6 +5143,7 @@ type ConfigMap struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // ConfigMapList is a resource containing a list of ConfigMap objects.
+// ConfigMapList是包含一系列的ConfigMap对象的资源
 type ConfigMapList struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -5144,6 +5152,7 @@ type ConfigMapList struct {
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// Items is the list of ConfigMaps.
+	// Items是一系列的ConfigMaps
 	Items []ConfigMap `json:"items" protobuf:"bytes,2,rep,name=items"`
 }
 

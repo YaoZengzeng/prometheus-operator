@@ -76,6 +76,7 @@ func (c *configMaps) Get(name string, options metav1.GetOptions) (result *v1.Con
 }
 
 // List takes label and field selectors, and returns the list of ConfigMaps that match those selectors.
+// List根据label以及field selectors，并且返回一系列匹配这些selectors的ConfigMaps
 func (c *configMaps) List(opts metav1.ListOptions) (result *v1.ConfigMapList, err error) {
 	var timeout time.Duration
 	if opts.TimeoutSeconds != nil {

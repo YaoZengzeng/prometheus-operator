@@ -222,6 +222,8 @@ type ObjectMeta struct {
 	// then an entry in this list will point to this controller, with the controller field set to true.
 	// There cannot be more than one managing controller.
 	// 这个对象依赖的一系列其他对象，如果list中的所有对象都已经被删除了，这个对象就会被gc
+	// 如果这个对象由一个controller管理，那么这个list中的一个entry会指向这个controller，并且controller字段设置为true
+	// 不能有超过多于一个的managing controller
 	// 如果这个object由一个controller管理，那么这个list中的entry会指向这个controller，controller字段设置为true
 	// 不能有超过一个的managing controller
 	// +optional
@@ -479,6 +481,7 @@ type DeleteOptions struct {
 	OrphanDependents *bool `json:"orphanDependents,omitempty" protobuf:"varint,3,opt,name=orphanDependents"`
 
 	// Whether and how garbage collection will be performed.
+	// 是否以及如何进行GC
 	// Either this field or OrphanDependents may be set, but not both.
 	// The default policy is decided by the existing finalizer set in the
 	// metadata.finalizers and the resource-specific default policy.

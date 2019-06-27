@@ -171,6 +171,7 @@ func makeStatefulSet(
 				{
 					APIVersion:         p.APIVersion,
 					BlockOwnerDeletion: &boolTrue,
+					// 直接将Controller以及BlockOwnerDeletion设置为true
 					Controller:         &boolTrue,
 					Kind:               p.Kind,
 					Name:               p.Name,
@@ -486,12 +487,14 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	}
 
 	// 将ruleConfigMapNames作为pod的volume挂载
+	// 直接将ruleConfigMapNames中的name作为name
 	for _, name := range ruleConfigMapNames {
 		volumes = append(volumes, v1.Volume{
 			Name: name,
 			VolumeSource: v1.VolumeSource{
 				ConfigMap: &v1.ConfigMapVolumeSource{
 					LocalObjectReference: v1.LocalObjectReference{
+						// 指定同一个namespace的configmap的名字
 						Name: name,
 					},
 				},
@@ -508,6 +511,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		}
 	}
 
+	// 初始化promVolumeMounts
 	promVolumeMounts := []v1.VolumeMount{
 		{
 			Name:      "config-out",
@@ -674,6 +678,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		for _, name := range ruleConfigMapNames {
 			// 挂载路径为/etc/prometheus/rules/$ruleConfigMapName
 			mountPath := rulesDir + "/" + name
+			// 在ConfigMapReloader挂载各个ruleConfig
 			container.VolumeMounts = append(container.VolumeMounts, v1.VolumeMount{
 				Name:      name,
 				MountPath: mountPath,
@@ -894,6 +899,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			Image:          prometheusImage,
 			Ports:          ports,
 			Args:           promArgs,
+			// 此处挂载promVolumeMounts
 			VolumeMounts:   promVolumeMounts,
 			LivenessProbe:  livenessProbe,
 			ReadinessProbe: readinessProbe,
@@ -944,6 +950,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 				NodeSelector:                  p.Spec.NodeSelector,
 				PriorityClassName:             p.Spec.PriorityClassName,
 				TerminationGracePeriodSeconds: &terminationGracePeriod,
+				// 指定volumes
 				Volumes:                       volumes,
 				Tolerations:                   p.Spec.Tolerations,
 				Affinity:                      p.Spec.Affinity,

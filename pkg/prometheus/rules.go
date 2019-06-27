@@ -38,18 +38,22 @@ const labelPrometheusName = "prometheus-name"
 // environments. This is probably due to different meta data sizes which count
 // into the overall maximum size of a ConfigMap. Thereby lets leave a
 // large buffer.
+// 默认为0.5M，事实上还留下了很多空间作为缓存
 var maxConfigMapDataSize = int(float64(v1.MaxSecretSize) * 0.5)
 
+// 根据p所在或者指定的namespace筛选出rules，再根据这些rules创建相应的configmap
 func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]string, error) {
 	// 获取prometheus资源对象所在的namespace的ConfigMap client
 	cClient := c.kclient.CoreV1().ConfigMaps(p.Namespace)
 
+	// 得到当前prometheus支持的对于rule的namespace selector
 	namespaces, err := c.selectRuleNamespaces(p)
 	if err != nil {
 		return nil, err
 	}
 
 	// 获取新的rule对象
+	// 从这些namespace中找到符合selector的rules
 	newRules, err := c.selectRules(p, namespaces)
 	if err != nil {
 		return nil, err
@@ -57,6 +61,8 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 
 	// 获取当前的config map list
 	// 所有包含"prometheus-name"为p.name的label的ConfigMap
+	// 创建的configmap都在prometheus实例所在的
+	// 直接利用client进行list，而不是缓存中的内容
 	currentConfigMapList, err := cClient.List(prometheusRulesConfigMapSelector(p.Name))
 	if err != nil {
 		return nil, err
@@ -121,6 +127,7 @@ func (c *Operator) createOrUpdateRuleConfigMaps(p *monitoringv1.Prometheus) ([]s
 	// 现在只是简单的删除老的ConfigMaps并且创建新的
 	// 可以在以后用新的逻辑替换：只删除过时的ConfigMaps
 	for _, cm := range currentConfigMaps {
+		// 直接删除当前的ConfigMaps，用新的ConfigMaps替换
 		err := cClient.Delete(cm.Name, &metav1.DeleteOptions{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to delete current ConfigMap '%v'", cm.Name)
@@ -242,6 +249,7 @@ func (c *Operator) selectRules(p *monitoringv1.Prometheus, namespaces []string) 
 // [1] https://en.wikipedia.org/wiki/Bin_packing_problem#First-fit_algorithm
 func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string) ([]v1.ConfigMap, error) {
 	//check if none of the rule files is too large for a single ConfigMap
+	// 检查是否有单个的rule files对于单个的ConfigMap太过庞大
 	for filename, file := range ruleFiles {
 		if len(file) > maxConfigMapDataSize {
 			return nil, errors.Errorf(
@@ -251,6 +259,7 @@ func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string
 		}
 	}
 
+	// 一个bucket中包含多个rulefiles
 	buckets := []map[string]string{
 		{},
 	}
@@ -262,10 +271,12 @@ func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string
 	for n := range ruleFiles {
 		fileNames = append(fileNames, n)
 	}
+	// 对rulefile的名字进行排序
 	sort.Strings(fileNames)
 
 	for _, filename := range fileNames {
 		// If rule file doesn't fit into current bucket, create new bucket.
+		// 在一个bucket中装入多个rulefile，直到大于maxConfigMapDataSize
 		if bucketSize(buckets[currBucketIndex])+len(ruleFiles[filename]) > maxConfigMapDataSize {
 			buckets = append(buckets, map[string]string{})
 			currBucketIndex++
@@ -275,8 +286,9 @@ func makeRulesConfigMaps(p *monitoringv1.Prometheus, ruleFiles map[string]string
 
 	ruleFileConfigMaps := []v1.ConfigMap{}
 	for i, bucket := range buckets {
+		// 重新构建rulesConfigMap
 		cm := makeRulesConfigMap(p, bucket)
-		// 
+		// 并用bucket的编号进行重命名
 		cm.Name = cm.Name + "-" + strconv.Itoa(i)
 		ruleFileConfigMaps = append(ruleFileConfigMaps, cm)
 	}
@@ -305,7 +317,6 @@ func makeRulesConfigMap(p *monitoringv1.Prometheus, ruleFiles map[string]string)
 
 	return v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			// ConfigMap的名字是固定的?
 			Name:   prometheusRuleConfigMapName(p.Name),
 			Labels: labels,
 			OwnerReferences: []metav1.OwnerReference{

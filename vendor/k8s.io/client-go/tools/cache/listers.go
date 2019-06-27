@@ -33,6 +33,7 @@ type AppendFunc func(interface{})
 
 // 列举Store中匹配selector的所有资源对象并依次调用appendFn
 func ListAll(store Store, selector labels.Selector, appendFn AppendFunc) error {
+	// 如果selector为空，表示选择所有
 	selectAll := selector.Empty()
 	// 遍历List
 	for _, m := range store.List() {
@@ -48,6 +49,7 @@ func ListAll(store Store, selector labels.Selector, appendFn AppendFunc) error {
 			return err
 		}
 		// 检验m的labels和selector是否匹配
+		// 直接用labels.Set进行类型转换
 		if selector.Matches(labels.Set(metadata.GetLabels())) {
 			appendFn(m)
 		}
@@ -77,10 +79,13 @@ func ListAllByNamespace(indexer Indexer, namespace string, selector labels.Selec
 	}
 
 	// 从indexer中根据namespace筛选出items
+	// 构建一个Namespace为namespace的&metav1.ObjectMeta{}，index函数就能从中抽取出namespace
+	// 然后就可以从缓存中得到指定namespace的所有对象
 	items, err := indexer.Index(NamespaceIndex, &metav1.ObjectMeta{Namespace: namespace})
 	if err != nil {
 		// Ignore error; do slow search without index.
 		klog.Warningf("can not retrieve list of objects using index : %v", err)
+		// 利用Index失败就直接List()
 		for _, m := range indexer.List() {
 			metadata, err := meta.Accessor(m)
 			if err != nil {
@@ -105,6 +110,7 @@ func ListAllByNamespace(indexer Indexer, namespace string, selector labels.Selec
 		if err != nil {
 			return err
 		}
+		// 再将符合要求的item放入
 		if selector.Matches(labels.Set(metadata.GetLabels())) {
 			appendFn(m)
 		}

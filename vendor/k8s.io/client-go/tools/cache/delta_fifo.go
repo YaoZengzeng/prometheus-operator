@@ -27,6 +27,7 @@ import (
 )
 
 // NewDeltaFIFO returns a Store which can be used process changes to items.
+// NewDeltaFIFO返回一个Store，它能够用于处理items的变更
 //
 // keyFunc is used to figure out what key an object should have. (It's
 // exposed in the returned DeltaFIFO's KeyOf() method, with bonus features.)
@@ -68,10 +69,12 @@ func NewDeltaFIFO(keyFunc KeyFunc, knownObjects KeyListerGetter) *DeltaFIFO {
 }
 
 // DeltaFIFO is like FIFO, but allows you to process deletes.
+// DeltaFIFO和FIFO类似，但是允许你处理deletes
 //
 // DeltaFIFO is a producer-consumer queue, where a Reflector is
 // intended to be the producer, and the consumer is whatever calls
 // the Pop() method.
+// DeltaFIFO是一个生产者-消费者队列，其中Reflector是一个生产者而那些调用Pop()方法的是消费者
 //
 // DeltaFIFO solves this use case:
 //  * You want to process every object change (delta) at most once.
@@ -79,10 +82,17 @@ func NewDeltaFIFO(keyFunc KeyFunc, knownObjects KeyListerGetter) *DeltaFIFO {
 //    that's happened to it since you last processed it.
 //  * You want to process the deletion of objects.
 //  * You might want to periodically reprocess objects.
+// DeltaFIFO解决了以下的用户场景：
+//  * 你只想处理每个object change（delta）最多一次
+//  * 当你处理一个对象，你想要看到发生在它上的everything，从上次处理它之后
+//. * 你想要处理对象的删除
+//. * 你可能想要阶段性地重新处理对象
 //
 // DeltaFIFO's Pop(), Get(), and GetByKey() methods return
 // interface{} to satisfy the Store/Queue interfaces, but it
 // will always return an object of type Deltas.
+// DeltaFIFO的Pop(), Get()以及GetByKey()方法会返回interface{}用以满足Store/Queue接口
+// 但是它总是返回类型为Deltas的对象
 //
 // A note on threading: If you call Pop() in parallel from multiple
 // threads, you could end up with multiple threads processing slightly
@@ -112,11 +122,15 @@ type DeltaFIFO struct {
 
 	// keyFunc is used to make the key used for queued item
 	// insertion and retrieval, and should be deterministic.
+	// keyFunc是用来获取一个对象的key，通过它能够将item插入队列或者从队列中将其获取
+	// 它应该是确定性的
 	keyFunc KeyFunc
 
 	// knownObjects list keys that are "known", for the
 	// purpose of figuring out which items have been deleted
 	// when Replace() or Delete() is called.
+	// knownObjects列举出那些已经知道的keys，为了搞清楚在Replace()或者Delete()
+	// 被调用的时候哪些items已经被删除了
 	knownObjects KeyListerGetter
 
 	// Indication the queue is closed.
@@ -575,6 +589,7 @@ func (f *DeltaFIFO) syncKeyLocked(key string) error {
 }
 
 // A KeyListerGetter is anything that knows how to list its keys and look up by key.
+// 一个KeyListerGetter是任何知道如何list它的keys以及通过key进行查找的对象
 type KeyListerGetter interface {
 	KeyLister
 	KeyGetter
@@ -591,6 +606,7 @@ type KeyGetter interface {
 }
 
 // DeltaType is the type of a change (addition, deletion, etc)
+// DeltaType是变更的类型
 type DeltaType string
 
 const (
@@ -598,8 +614,11 @@ const (
 	Updated DeltaType = "Updated"
 	Deleted DeltaType = "Deleted"
 	// The other types are obvious. You'll get Sync deltas when:
+	// 在以下情况会触发Sync deltas
 	//  * A watch expires/errors out and a new list/watch cycle is started.
+	//  * 一个watch expires/errors out以及一个新的list/watch cycle开始
 	//  * You've turned on periodic syncs.
+	//  * 遇到periodic syncs
 	// (Anything that trigger's DeltaFIFO's Replace() method.)
 	Sync DeltaType = "Sync"
 )

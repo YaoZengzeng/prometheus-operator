@@ -26,6 +26,8 @@ import (
 // ThreadSafeStore is an interface that allows concurrent access to a storage backend.
 // TL;DR caveats: you must not modify anything returned by Get or List as it will break
 // the indexing feature in addition to not being thread safe.
+// ThreadSafeStore是一个接口，允许并行地访问一个storage backend
+// 保证不能修改Get或者List返回的anything，因为这会破坏indexing feature以及不再变得线程安全
 //
 // The guarantees of thread safety provided by List/Get are only valid if the caller
 // treats returned items as read-only. For example, a pointer inserted in the store
@@ -34,6 +36,8 @@ import (
 // modifying objects stored by the indexers (if any) will *not* automatically lead
 // to a re-index. So it's not a good idea to directly modify the objects returned by
 // Get/List, in general.
+// 修改由indexers存储的objects不会自动导致re-index，因此一般来说直接修改由Get/List返回的对象并不是
+// 一个好的方法
 type ThreadSafeStore interface {
 	Add(key string, obj interface{})
 	Update(key string, obj interface{})
@@ -50,6 +54,8 @@ type ThreadSafeStore interface {
 
 	// AddIndexers adds more indexers to this store.  If you call this after you already have data
 	// in the store, the results are undefined.
+	// AddIndexeers在store中增加更多的indexers，如果在store中已经有数据的情况下调用这个方法
+	// 结果将是不确定的
 	AddIndexers(newIndexers Indexers) error
 	Resync() error
 }
@@ -62,6 +68,7 @@ type threadSafeMap struct {
 	// indexers maps a name to an IndexFunc
 	indexers Indexers
 	// indices maps a name to an Index
+	// indices其实就是多个Index，将name映射到一个Index
 	indices Indices
 }
 
@@ -137,6 +144,7 @@ func (c *threadSafeMap) Index(indexName string, obj interface{}) ([]interface{},
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
+	// 根据indexName找到相应的indexFunc，再利用这个indexFunc计算出对应的indexKeys
 	indexFunc := c.indexers[indexName]
 	if indexFunc == nil {
 		return nil, fmt.Errorf("Index with name %s does not exist", indexName)
@@ -148,6 +156,7 @@ func (c *threadSafeMap) Index(indexName string, obj interface{}) ([]interface{},
 	}
 	index := c.indices[indexName]
 
+	// 例如当indexName为"namespace"时，返回obj所在的namespace下的所有同类型对象
 	var returnKeySet sets.String
 	if len(indexKeys) == 1 {
 		// In majority of cases, there is exactly one value matching.
@@ -165,6 +174,7 @@ func (c *threadSafeMap) Index(indexName string, obj interface{}) ([]interface{},
 	}
 
 	list := make([]interface{}, 0, returnKeySet.Len())
+	// 返回所有的items
 	for absoluteKey := range returnKeySet {
 		list = append(list, c.items[absoluteKey])
 	}
@@ -248,28 +258,40 @@ func (c *threadSafeMap) AddIndexers(newIndexers Indexers) error {
 
 // updateIndices modifies the objects location in the managed indexes, if this is an update, you must provide an oldObj
 // updateIndices must be called from a function that already has a lock on the cache
+// updateIndices修改在managed indexes的对象的位置
 func (c *threadSafeMap) updateIndices(oldObj interface{}, newObj interface{}, key string) {
 	// if we got an old object, we need to remove it before we add it again
 	if oldObj != nil {
 		c.deleteFromIndices(oldObj, key)
 	}
+	// 一般也就一个indexer，name为"namespace"，indexFunc用来获取对象的namespace
 	for name, indexFunc := range c.indexers {
+		// 调用indexFunc找出对象的indexValues
 		indexValues, err := indexFunc(newObj)
 		if err != nil {
 			panic(fmt.Errorf("unable to calculate an index entry for key %q on index %q: %v", key, name, err))
 		}
+		// 如果indices[name]为空，则创建一个
+		// 此处即为indices["namespace"]
 		index := c.indices[name]
 		if index == nil {
 			index = Index{}
 			c.indices[name] = index
 		}
 
+		// 遍历各个indexValues，
+		// 例如在default这个namespace有个对象abc
+		// 它的key为default/abc
+		// 那么它在索引中的位置为c.indices["namespace"]["default"]={"default/abc"}
+		// 这样我们基于某个namespace进行查找的话，就能很快找到某个对象
 		for _, indexValue := range indexValues {
 			set := index[indexValue]
+			// 如果对应的indexValue还不存在，就创建一个
 			if set == nil {
 				set = sets.String{}
 				index[indexValue] = set
 			}
+			// 将对象的key插入
 			set.Insert(key)
 		}
 	}

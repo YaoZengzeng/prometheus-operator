@@ -43,6 +43,7 @@ type Watcher interface {
 }
 
 // ListerWatcher is any object that knows how to perform an initial list and start a watch on a resource.
+// LisrerWatcher是任何知道如何做初始化的list以及对一个资源启动watch的对象
 type ListerWatcher interface {
 	Lister
 	Watcher

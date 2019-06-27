@@ -43,6 +43,7 @@ import (
 )
 
 // Reflector watches a specified resource and causes all changes to be reflected in the given store.
+// Reflector监听特定的资源并且将所有的变更反映到给定的store中
 type Reflector struct {
 	// name identifies this reflector. By default it will be a file:line if possible.
 	name string
@@ -50,13 +51,16 @@ type Reflector struct {
 	metrics *reflectorMetrics
 
 	// The type of object we expect to place in the store.
+	// 存放在store中的类型
 	expectedType reflect.Type
 	// The destination to sync up with the watch source
+	// 用来和watch资源同步的目的地
 	store Store
 	// listerWatcher is used to perform lists and watches.
 	listerWatcher ListerWatcher
 	// period controls timing between one watch ending and
 	// the beginning of the next one.
+	// period控制一个wacht结束和下一次watch开始的时间
 	period       time.Duration
 	resyncPeriod time.Duration
 	ShouldResync func() bool
@@ -90,11 +94,16 @@ func NewNamespaceKeyedIndexerAndReflector(lw ListerWatcher, expectedType interfa
 // is nil. If resyncPeriod is non-zero, then lists will be executed after every
 // resyncPeriod, so that you can use reflectors to periodically process everything as
 // well as incrementally processing the things that change.
+// NewReflector创建一个新的Reflector对象，它能保持给定资源对于给定的store和server中的内容是同步的
+// Reflector保证只将有着类型为expectedType的资源放入store，除非expectedType为nil
+// 如果resyncPeriod为非零，那么lists会每resyncPeriod执行一次，因此可以使用reflector定期执行everything
+// 以及增量地执行发生改变的对象
 func NewReflector(lw ListerWatcher, expectedType interface{}, store Store, resyncPeriod time.Duration) *Reflector {
 	return NewNamedReflector(naming.GetNameFromCallsite(internalPackages...), lw, expectedType, store, resyncPeriod)
 }
 
 // NewNamedReflector same as NewReflector, but with a specified name for logging
+// NewNamedReflector和NewReflector相同，但是有一个特定的名字用于logging
 func NewNamedReflector(name string, lw ListerWatcher, expectedType interface{}, store Store, resyncPeriod time.Duration) *Reflector {
 	r := &Reflector{
 		name:          name,
@@ -119,6 +128,7 @@ var internalPackages = []string{"client-go/tools/cache/"}
 
 // Run starts a watch and handles watch events. Will restart the watch if it is closed.
 // Run will exit when stopCh is closed.
+// Run启动一个watch并且处理watch events，如果watch被关闭还能重启
 func (r *Reflector) Run(stopCh <-chan struct{}) {
 	klog.V(3).Infof("Starting reflector %v (%s) from %s", r.expectedType, r.resyncPeriod, r.name)
 	wait.Until(func() {
@@ -142,6 +152,7 @@ var (
 
 // resyncChan returns a channel which will receive something when a resync is
 // required, and a cleanup function.
+// resyncChan返回一个channel，它会收到something，当需要一个resync的时候
 func (r *Reflector) resyncChan() (<-chan time.Time, func() bool) {
 	if r.resyncPeriod == 0 {
 		return neverExitWatch, func() bool { return false }
@@ -156,7 +167,9 @@ func (r *Reflector) resyncChan() (<-chan time.Time, func() bool) {
 
 // ListAndWatch first lists all items and get the resource version at the moment of call,
 // and then use the resource version to watch.
+// ListAndWatch首先lists所有的items并且获取所有的resource version，之后使用resource version进行watch
 // It returns error if ListAndWatch didn't even try to initialize watch.
+// 返回error如果ListAndWatch没有试着初始化watch
 func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	klog.V(3).Infof("Listing and watching %v from %s", r.expectedType, r.name)
 	var resourceVersion string
@@ -164,6 +177,8 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	// Explicitly set "0" as resource version - it's fine for the List()
 	// to be served from cache and potentially be delayed relative to
 	// etcd contents. Reflector framework will catch up via Watch() eventually.
+	// 显示地将0设置为resource version - List()直接从缓存中获取并且暂时相对落后于etcd中的内容是被允许的
+	// Reflector最终会通过Watch()赶上来
 	options := metav1.ListOptions{ResourceVersion: "0"}
 
 	if err := func() error {
@@ -179,6 +194,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 					panicCh <- r
 				}
 			}()
+			// 调用List进行list
 			list, err = r.listerWatcher.List(options)
 			close(listCh)
 		}()
@@ -197,6 +213,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		if err != nil {
 			return fmt.Errorf("%s: Unable to understand list result %#v: %v", r.name, list, err)
 		}
+		// 获取resource version
 		resourceVersion = listMetaInterface.GetResourceVersion()
 		initTrace.Step("Resource version extracted")
 		items, err := meta.ExtractList(list)
@@ -218,6 +235,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	resyncerrc := make(chan error, 1)
 	cancelCh := make(chan struct{})
 	defer close(cancelCh)
+	// 启动一个goroutine进行resync
 	go func() {
 		resyncCh, cleanup := r.resyncChan()
 		defer func() {
@@ -233,6 +251,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			}
 			if r.ShouldResync == nil || r.ShouldResync() {
 				klog.V(4).Infof("%s: forcing resync", r.name)
+				// 仅仅对store进行resync?
 				if err := r.store.Resync(); err != nil {
 					resyncerrc <- err
 					return
@@ -243,6 +262,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		}
 	}()
 
+	// 一个无限循环进行watch
 	for {
 		// give the stopCh a chance to stop the loop, even in case of continue statements further down on errors
 		select {
@@ -256,6 +276,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			ResourceVersion: resourceVersion,
 			// We want to avoid situations of hanging watchers. Stop any wachers that do not
 			// receive any events within the timeout window.
+			// 我们想要避免watchers被挂起的情况，停止任何在timeout窗口之内没有接收到任何events的watcher
 			TimeoutSeconds: &timeoutSeconds,
 		}
 
@@ -294,6 +315,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 }
 
 // syncWith replaces the store's items with the given list.
+// syncWith用给定的list替换store的items
 func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) error {
 	found := make([]interface{}, 0, len(items))
 	for _, item := range items {
@@ -303,6 +325,7 @@ func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) err
 }
 
 // watchHandler watches w and keeps *resourceVersion up to date.
+// watchHandler对w进行watch并且保证*resourceVersion最新
 func (r *Reflector) watchHandler(w watch.Interface, resourceVersion *string, errc chan error, stopCh <-chan struct{}) error {
 	start := r.clock.Now()
 	eventCount := 0
@@ -319,6 +342,7 @@ loop:
 		case err := <-errc:
 			return err
 		case event, ok := <-w.ResultChan():
+			// 从watch中得到一个event
 			if !ok {
 				break loop
 			}
@@ -335,6 +359,7 @@ loop:
 				continue
 			}
 			newResourceVersion := meta.GetResourceVersion()
+			// 再根据事件的类型更新store
 			switch event.Type {
 			case watch.Added:
 				err := r.store.Add(event.Object)

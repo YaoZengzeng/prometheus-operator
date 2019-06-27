@@ -49,6 +49,8 @@ func (g *Group) Wait() {
 
 // StartWithChannel starts f in a new goroutine in the group.
 // stopCh is passed to f as an argument. f should stop when stopCh is available.
+// StartWithChannel在group的一个新的goroutine里启动f
+// stopCh将作为参数传递给f，f应该在stopCh可用的时候停止
 func (g *Group) StartWithChannel(stopCh <-chan struct{}, f func(stopCh <-chan struct{})) {
 	g.Start(func() {
 		f(stopCh)
@@ -80,6 +82,7 @@ func Forever(f func(), period time.Duration) {
 }
 
 // Until loops until stop channel is closed, running f every period.
+// Until 循环执行直到stop channel关闭，每period运行一次f
 //
 // Until is syntactic sugar on top of JitterUntil with zero jitter factor and
 // with sliding = true (which means the timer for period starts after the f

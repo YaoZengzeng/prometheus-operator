@@ -27,19 +27,26 @@ import (
 )
 
 // Config contains all the settings for a Controller.
+// Config包含了一个Controller的所有的配置
 type Config struct {
 	// The queue for your objects - has to be a DeltaFIFO due to
 	// assumptions in the implementation. Your Process() function
 	// should accept the output of this Queue's Pop() method.
+	// 对象的队列，根据实现的假设，应该是一个DeltaFIFO
+	// 你的Process()函数应该接受这个队列的Pop()方法的输出
 	Queue
 
 	// Something that can list and watch your objects.
+	// 一些可以list以及watch你的对象的东西
 	ListerWatcher
 
 	// Something that can process your objects.
+	// 一个可以处理你的对象的东西
+	// 一般用于对单个对象的处理
 	Process ProcessFunc
 
 	// The type of your objects.
+	// 你的对象的类型
 	ObjectType runtime.Object
 
 	// Reprocess everything at least this often.
@@ -49,11 +56,14 @@ type Config struct {
 	// problem, we can change that replacement policy to append new
 	// things to the end of the queue instead of replacing the entire
 	// queue.
+	// 至少以这个频率进行reprocess
 	FullResyncPeriod time.Duration
 
 	// ShouldResync, if specified, is invoked when the controller's reflector determines the next
 	// periodic sync should occur. If this returns true, it means the reflector should proceed with
 	// the resync.
+	// ShouldResync，如果指定了，由controller的reflector调用决定什么时候进行下一次的period sync
+	// 如果返回true，这意味着应该进行resync
 	ShouldResync ShouldResyncFunc
 
 	// If true, when Process() returns an error, re-enqueue the object.
@@ -72,6 +82,7 @@ type ShouldResyncFunc func() bool
 type ProcessFunc func(obj interface{}) error
 
 // Controller is a generic controller framework.
+// Controller是一个通用的controller framework
 type controller struct {
 	config         Config
 	reflector      *Reflector
@@ -86,6 +97,7 @@ type Controller interface {
 }
 
 // New makes a new Controller from the given Config.
+// New用给定的Config创建一个新的Controller
 func New(c *Config) Controller {
 	ctlr := &controller{
 		config: *c,
@@ -96,6 +108,8 @@ func New(c *Config) Controller {
 
 // Run begins processing items, and will continue until a value is sent down stopCh.
 // It's an error to call Run more than once.
+// Run开始处理items，并且会持续直到一个value发送给stopCh
+// 调用Run多次是一个错误
 // Run blocks; call via go.
 func (c *controller) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
@@ -103,9 +117,11 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 		<-stopCh
 		c.config.Queue.Close()
 	}()
+	// 创建一个新的Reflector
 	r := NewReflector(
 		c.config.ListerWatcher,
 		c.config.ObjectType,
+		// 将Queue作为Store
 		c.config.Queue,
 		c.config.FullResyncPeriod,
 	)
@@ -121,10 +137,12 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 
 	wg.StartWithChannel(stopCh, r.Run)
 
+	// 启动controller的processLoop
 	wait.Until(c.processLoop, time.Second, stopCh)
 }
 
 // Returns true once this controller has completed an initial resource listing
+// HasSynced()返回true，一旦controller已经完成初始的resource listing
 func (c *controller) HasSynced() bool {
 	return c.config.Queue.HasSynced()
 }
@@ -137,6 +155,7 @@ func (c *controller) LastSyncResourceVersion() string {
 }
 
 // processLoop drains the work queue.
+// processLoop榨干work queue
 // TODO: Consider doing the processing in parallel. This will require a little thought
 // to make sure that we don't end up processing the same object multiple times
 // concurrently.

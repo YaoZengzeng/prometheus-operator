@@ -52,13 +52,11 @@ import (
 )
 
 const (
-	// 每5分钟同步一次
 	resyncPeriod = 5 * time.Minute
 )
 
 // Operator manages life cycle of Prometheus deployments and
 // monitoring configurations.
-// Operator管理Prometheus deployments的生命周期并且监控配置
 type Operator struct {
 	kclient   kubernetes.Interface
 	mclient   monitoringclient.Interface
@@ -67,6 +65,7 @@ type Operator struct {
 
 	promInf cache.SharedIndexInformer
 	smonInf cache.SharedIndexInformer
+	pmonInf cache.SharedIndexInformer
 	ruleInf cache.SharedIndexInformer
 	cmapInf cache.SharedIndexInformer
 	secrInf cache.SharedIndexInformer
@@ -133,17 +132,14 @@ func (labels *Labels) Set(value string) error {
 }
 
 // Config defines configuration parameters for the Operator.
-// Config定义了Operator的配置参数
 type Config struct {
 	Host                          string
 	KubeletObject                 string
 	TLSInsecure                   bool
 	TLSConfig                     rest.TLSClientConfig
-	// ConfigReloader的镜像
 	ConfigReloaderImage           string
 	ConfigReloaderCPU             string
 	ConfigReloaderMemory          string
-	// PrometheusConfigReloader的镜像
 	PrometheusConfigReloaderImage string
 	AlertmanagerDefaultBaseImage  string
 	PrometheusDefaultBaseImage    string
@@ -166,27 +162,22 @@ type BasicAuthCredentials struct {
 }
 
 // New creates a new controller.
-// New创建一个新的controller
 func New(conf Config, logger log.Logger) (*Operator, error) {
 	cfg, err := k8sutil.NewClusterConfig(conf.Host, conf.TLSInsecure, &conf.TLSConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating cluster config failed")
 	}
 
-	// 实例化kubernetes client
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating kubernetes client failed")
 	}
 
-	// 实例化apiextension client
-	// 这个client主要用来创建crd
 	crdclient, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating apiextensions client failed")
 	}
 
-	// 初始化monitoring client
 	mclient, err := monitoringclient.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating monitoring client failed")
@@ -215,7 +206,6 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		mclient:                mclient,
 		crdclient:              crdclient,
 		logger:                 logger,
-		// 构建workqueue
 		queue:                  workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "prometheus"),
 		host:                   cfg.Host,
 		kubeletObjectName:      kubeletObjectName,
@@ -225,7 +215,6 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		configGenerator:        NewConfigGenerator(logger),
 	}
 
-	// 构建prometheus对象的informer
 	c.promInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return &cache.ListWatch{
@@ -242,7 +231,6 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		&monitoringv1.Prometheus{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	// 构建ServiceMonitor的informer
 	c.smonInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return &cache.ListWatch{
@@ -255,7 +243,18 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		&monitoringv1.ServiceMonitor{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	// 构建PrometheusRule的informer
+	c.pmonInf = cache.NewSharedIndexInformer(
+		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
+			return &cache.ListWatch{
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					return mclient.MonitoringV1().PodMonitors(namespace).List(options)
+				},
+				WatchFunc: mclient.MonitoringV1().PodMonitors(namespace).Watch,
+			}
+		}),
+		&monitoringv1.PodMonitor{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
+	)
+
 	c.ruleInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return &cache.ListWatch{
@@ -265,11 +264,9 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 				WatchFunc: mclient.MonitoringV1().PrometheusRules(namespace).Watch,
 			}
 		}),
-		// 默认的EventHandler进行resync的时间，即resyncPeriod为5min
 		&monitoringv1.PrometheusRule{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	// 构建ConfigMap的informer
 	c.cmapInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return &cache.ListWatch{
@@ -286,7 +283,6 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		&v1.ConfigMap{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	// 构建Secret的informer
 	c.secrInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return cache.NewListWatchFromClient(c.kclient.CoreV1().RESTClient(), "secrets", namespace, fields.Everything())
@@ -294,7 +290,6 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		&v1.Secret{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	// 构建StatefulSet的informer
 	c.ssetInf = cache.NewSharedIndexInformer(
 		listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 			return cache.NewListWatchFromClient(c.kclient.AppsV1().RESTClient(), "statefulsets", namespace, fields.Everything())
@@ -306,19 +301,13 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 	// should resync. If the unprivileged ListerWatcher is used, then the
 	// informer must resync more often because it cannot watch for
 	// namespace changes.
-	// nsResyncPeriod用于控制namespace informer重新同步的频率
-	// 如果使用了unprivileged ListWatcher，那么informer必须同步地更加频繁，因为
-	// 它不能watch namespace的变更
 	nsResyncPeriod := 15 * time.Second
 	// If the only namespace is v1.NamespaceAll, then the client must be
 	// privileged and a regular cache.ListWatch will be used. In this case
 	// watching works and we do not need to resync so frequently.
-	// 如果唯一的namespace是v1.NamespaceAll，那么client必须死privileged并且会使用regular cache.ListWatch
-	// 在这种情况下watching works并且我们不需要同步地如此频繁
 	if listwatch.IsAllNamespaces(c.config.Namespaces) {
 		nsResyncPeriod = resyncPeriod
 	}
-	// 构建Namespace的informer
 	c.nsInf = cache.NewSharedIndexInformer(
 		listwatch.NewUnprivilegedNamespaceListWatchFromClient(c.kclient.CoreV1().RESTClient(), c.config.Namespaces, fields.Everything()),
 		&v1.Namespace{}, nsResyncPeriod, cache.Indexers{},
@@ -347,7 +336,6 @@ func (c *Operator) RegisterMetrics(r prometheus.Registerer, reconcileErrorsCount
 }
 
 // waitForCacheSync waits for the informers' caches to be synced.
-// waitForCacheSync等待informers的cache同步完成
 func (c *Operator) waitForCacheSync(stopc <-chan struct{}) error {
 	ok := true
 	informers := []struct {
@@ -356,13 +344,13 @@ func (c *Operator) waitForCacheSync(stopc <-chan struct{}) error {
 	}{
 		{"Prometheus", c.promInf},
 		{"ServiceMonitor", c.smonInf},
+		{"PodMonitor", c.pmonInf},
 		{"PrometheusRule", c.ruleInf},
 		{"ConfigMap", c.cmapInf},
 		{"Secret", c.secrInf},
 		{"StatefulSet", c.ssetInf},
 		{"Namespace", c.nsInf},
 	}
-	// 遍历各个informer，等待同步完成
 	for _, inf := range informers {
 		if !cache.WaitForCacheSync(stopc, inf.informer.HasSynced) {
 			level.Error(c.logger).Log("msg", fmt.Sprintf("failed to sync %s cache", inf.name))
@@ -374,13 +362,11 @@ func (c *Operator) waitForCacheSync(stopc <-chan struct{}) error {
 	if !ok {
 		return errors.New("failed to sync caches")
 	}
-	// 成功同步所有的caches
 	level.Info(c.logger).Log("msg", "successfully synced all caches")
 	return nil
 }
 
 // addHandlers adds the eventhandlers to the informers.
-// addHandlers为各个informer增加eventhandlers
 func (c *Operator) addHandlers() {
 	c.promInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.handlePrometheusAdd,
@@ -392,7 +378,11 @@ func (c *Operator) addHandlers() {
 		DeleteFunc: c.handleSmonDelete,
 		UpdateFunc: c.handleSmonUpdate,
 	})
-	// 增加PrometheusRule的EventHandler
+	c.pmonInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.handlePmonAdd,
+		DeleteFunc: c.handlePmonDelete,
+		UpdateFunc: c.handlePmonUpdate,
+	})
 	c.ruleInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.handleRuleAdd,
 		DeleteFunc: c.handleRuleDelete,
@@ -416,14 +406,11 @@ func (c *Operator) addHandlers() {
 }
 
 // Run the controller.
-// 运行controller
 func (c *Operator) Run(stopc <-chan struct{}) error {
 	defer c.queue.ShutDown()
 
 	errChan := make(chan error)
-	// 启动一个goroutine创建CRD
 	go func() {
-		// 检测和API Server的交互是否正常
 		v, err := c.kclient.Discovery().ServerVersion()
 		if err != nil {
 			errChan <- errors.Wrap(err, "communicating with server failed")
@@ -452,9 +439,9 @@ func (c *Operator) Run(stopc <-chan struct{}) error {
 
 	go c.worker()
 
-	// 启动各个对象的informer
 	go c.promInf.Run(stopc)
 	go c.smonInf.Run(stopc)
+	go c.pmonInf.Run(stopc)
 	go c.ruleInf.Run(stopc)
 	go c.cmapInf.Run(stopc)
 	go c.secrInf.Run(stopc)
@@ -696,16 +683,88 @@ func (c *Operator) handleSmonDelete(obj interface{}) {
 }
 
 // TODO: Don't enque just for the namespace
+func (c *Operator) handlePmonAdd(obj interface{}) {
+	o, ok := c.getObject(obj)
+	if ok {
+		level.Debug(c.logger).Log("msg", "PodMonitor added")
+		c.triggerByCounter.WithLabelValues(monitoringv1.PodMonitorsKind, "add").Inc()
+		c.enqueueForNamespace(o.GetNamespace())
+	}
+}
+
+// TODO: Don't enque just for the namespace
+func (c *Operator) handlePmonUpdate(old, cur interface{}) {
+	if old.(*monitoringv1.PodMonitor).ResourceVersion == cur.(*monitoringv1.PodMonitor).ResourceVersion {
+		return
+	}
+
+	o, ok := c.getObject(cur)
+	if ok {
+		level.Debug(c.logger).Log("msg", "PodMonitor updated")
+		c.triggerByCounter.WithLabelValues(monitoringv1.PodMonitorsKind, "update").Inc()
+
+		c.enqueueForNamespace(o.GetNamespace())
+	}
+}
+
+// TODO: Don't enque just for the namespace
+func (c *Operator) handlePmonDelete(obj interface{}) {
+	o, ok := c.getObject(obj)
+	if ok {
+		level.Debug(c.logger).Log("msg", "PodMonitor delete")
+		c.triggerByCounter.WithLabelValues(monitoringv1.PodMonitorsKind, "delete").Inc()
+
+		c.enqueueForNamespace(o.GetNamespace())
+	}
+}
+
+// TODO: Don't enque just for the namespace
+/*
 func (c *Operator) handleRuleAdd(obj interface{}) {
 	o, ok := c.getObject(obj)
 	if ok {
 		level.Debug(c.logger).Log("msg", "PrometheusRule added")
 		c.triggerByCounter.WithLabelValues(monitoringv1.PrometheusRuleKind, "add").Inc()
 
-		// 获取PrometheusRule的namespace
 		c.enqueueForNamespace(o.GetNamespace())
 	}
+}*/
+
+func (c *Operator) handleRuleAdd(obj interface{}) {
+	r := obj.(*monitoringv1.PrometheusRule)
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("PrometheusRule added: %v", r))
+
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: r.Labels})
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
+	}
+
+	ssets := []*appsv1.StatefulSet
+	ssetsKeys := []string
+	err = cache.ListAll(c.ssetInf.GetStore(), selector, func(obj interface{}) {
+		sset := obj.(*appsv1.StatefulSet)
+		sset = sset.DeepCopy()
+		ssets = append(ssets, sset))
+		ssetsKeys = append(ssetsKeys, fmt.Sprintf("%v/%v", sset.Namespace, sset.Name))
+	})
+	if err != nil {
+		level.Error(c.logger).Log("error", "cache.ListAll failed in handleRuleAdd")
+		return
+	}
+
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
+
+	for _, sset := range ssets {
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+			return
+		}
+	}
+
 }
+
+
 
 // TODO: Don't enque just for the namespace
 func (c *Operator) handleRuleUpdate(old, cur interface{}) {
@@ -803,7 +862,6 @@ func (c *Operator) handleConfigMapUpdate(old, cur interface{}) {
 	}
 }
 
-// 从obj这个接口类型中转换出metav1.Object
 func (c *Operator) getObject(obj interface{}) (metav1.Object, bool) {
 	ts, ok := obj.(cache.DeletedFinalStateUnknown)
 	if ok {
@@ -820,8 +878,6 @@ func (c *Operator) getObject(obj interface{}) (metav1.Object, bool) {
 
 // enqueue adds a key to the queue. If obj is a key already it gets added
 // directly. Otherwise, the key is extracted via keyFunc.
-// enqueue将一个key加入队列中，如果obj已经是一个key了，则它直接被加入
-// 否则，key通过keyFunc获取
 func (c *Operator) enqueue(obj interface{}) {
 	if obj == nil {
 		return
@@ -835,14 +891,11 @@ func (c *Operator) enqueue(obj interface{}) {
 		}
 	}
 
-	// 加入队列c.queue
 	c.queue.Add(key)
 }
 
 // enqueueForNamespace enqueues all Prometheus object keys that belong to the
 // given namespace or select objects in the given namespace.
-// enqueueForNamespace为所有属于给定namespace的Prometheus object keys或者为给定namespace选择object
-// 一旦有configmap, statefulset等资源对象变更，就获取该资源对象的namespace，入队，再观察是否有对应的Prometheus对象需要更新
 func (c *Operator) enqueueForNamespace(nsName string) {
 	nsObject, exists, err := c.nsInf.GetStore().GetByKey(nsName)
 	if err != nil {
@@ -859,15 +912,12 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 		)
 		return
 	}
-	// 获取对应的ns对象
 	ns := nsObject.(*v1.Namespace)
 
 	err = cache.ListAll(c.promInf.GetStore(), labels.Everything(), func(obj interface{}) {
 		// Check for Prometheus instances in the NS.
-		// 检查该NS中的Prometheus实例
 		p := obj.(*monitoringv1.Prometheus)
 		if p.Namespace == nsName {
-			// 如果namespace匹配，则将其入队
 			c.enqueue(p)
 			return
 		}
@@ -883,7 +933,6 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 			return
 		}
 
-		// 如果队列中的ns和prometheus实例的ServiceMonitorNamespace匹配，则也将Prometheus资源入队
 		if smNSSelector.Matches(labels.Set(ns.Labels)) {
 			c.enqueue(p)
 			return
@@ -891,7 +940,6 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 
 		// Check for Prometheus instances selecting PrometheusRules in
 		// the NS.
-		// 检查NS中的Prometheus instances selecting PrometheusRules
 		ruleNSSelector, err := metav1.LabelSelectorAsSelector(p.Spec.RuleNamespaceSelector)
 		if err != nil {
 			level.Error(c.logger).Log(
@@ -901,8 +949,6 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 			return
 		}
 
-		// 如果ns的Labels和prometheus对象的ruleNSSelector相匹配，则将prometheus入队
-		// 如果新增了一个PrometheusRule，就会将该PrometheusRule所在的Namespace的prometheus对象入队
 		if ruleNSSelector.Matches(labels.Set(ns.Labels)) {
 			c.enqueue(p)
 			return
@@ -919,30 +965,24 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 // worker runs a worker thread that just dequeues items, processes them, and
 // marks them done. It enforces that the syncHandler is never invoked
 // concurrently with the same key.
-// worker函数运行一个worker thread，它只是让items出队列，处理它们并且将它们设置为done
-// 它强制执行syncHandler不会并行地被同样的key调用
 func (c *Operator) worker() {
 	for c.processNextWorkItem() {
 	}
 }
 
 func (c *Operator) processNextWorkItem() bool {
-	// 从队列c.queue中获取key
 	key, quit := c.queue.Get()
 	if quit {
 		return false
 	}
 	defer c.queue.Done(key)
 
-	// 对key进行同步
 	err := c.sync(key.(string))
 	if err == nil {
-		// 如果同步成功就调用Forget()
 		c.queue.Forget(key)
 		return true
 	}
 
-	// 否则将key重新入队
 	c.reconcileErrorsCounter.With(prometheus.Labels{}).Inc()
 	utilruntime.HandleError(errors.Wrap(err, fmt.Sprintf("Sync %q failed", key)))
 	c.queue.AddRateLimited(key)
@@ -956,9 +996,7 @@ func (c *Operator) prometheusForStatefulSet(sset interface{}) *monitoringv1.Prom
 		return nil
 	}
 
-	// 将statefulSetKey转换为PrometheusKey
 	promKey := statefulSetKeyToPrometheusKey(key)
-	// 如果由statefulSet转换而来的key在prometheus informer中找不到，则退出
 	p, exists, err := c.promInf.GetStore().GetByKey(promKey)
 	if err != nil {
 		level.Error(c.logger).Log("msg", "Prometheus lookup failed", "err", err)
@@ -984,8 +1022,6 @@ func statefulSetKeyToPrometheusKey(key string) string {
 }
 
 func prometheusKeyToStatefulSetKey(key string) string {
-	// key的格式为namespace/name
-	// 生成的StatefulSetKey为namespace/prometheus-name
 	keyParts := strings.Split(key, "/")
 	return keyParts[0] + "/prometheus-" + keyParts[1]
 }
@@ -1000,7 +1036,6 @@ func (c *Operator) handleStatefulSetDelete(obj interface{}) {
 }
 
 func (c *Operator) handleStatefulSetAdd(obj interface{}) {
-	// 当集群中有StatefulSet增加时
 	if ps := c.prometheusForStatefulSet(obj); ps != nil {
 		level.Debug(c.logger).Log("msg", "StatefulSet added")
 		c.triggerByCounter.WithLabelValues("StatefulSet", "add").Inc()
@@ -1031,21 +1066,23 @@ func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 }
 
 func (c *Operator) sync(key string) error {
-	// 从informer中获取对象
 	obj, exists, err := c.promInf.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		// Dependent resources are cleaned up by K8s via OwnerReferences
-		// 依赖的资源由k8s通过OwnerReferences清除
+		// 依赖的资源被K8s通过OwnerReferences清除了
 		return nil
 	}
 
 	p := obj.(*monitoringv1.Prometheus)
 	p = p.DeepCopy()
 	p.APIVersion = monitoringv1.SchemeGroupVersion.String()
-	p.Kind = monitoringv1.PrometheusesKind
+	p.Kind = monitoringv1.Prometh
+
+
+	eusesKind
 
 	if p.Spec.Paused {
 		return nil
@@ -1053,7 +1090,6 @@ func (c *Operator) sync(key string) error {
 
 	level.Info(c.logger).Log("msg", "sync prometheus", "key", key)
 
-	// 创建或者更新RuleConfigMap
 	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMaps(p)
 	if err != nil {
 		return err
@@ -1061,17 +1097,14 @@ func (c *Operator) sync(key string) error {
 
 	// If no service monitor selectors are configured, the user wants to
 	// manage configuration themselves.
-	// 如果没有配置monitor selectors，说明用户想要自己管理配置
 	if p.Spec.ServiceMonitorSelector != nil {
 		// We just always regenerate the configuration to be safe.
-		// 我们总是重新生成配置以确保安全
 		if err := c.createOrUpdateConfigurationSecret(p, ruleConfigMapNames); err != nil {
 			return errors.Wrap(err, "creating config failed")
 		}
 	}
 
 	// Create empty Secret if it doesn't exist. See comment above.
-	// 如果不存在，创建empty Secret
 	s, err := makeEmptyConfigurationSecret(p, c.config)
 	if err != nil {
 		return errors.Wrap(err, "generating empty config secret failed")
@@ -1095,7 +1128,6 @@ func (c *Operator) sync(key string) error {
 
 	ssetClient := c.kclient.AppsV1().StatefulSets(p.Namespace)
 	// Ensure we have a StatefulSet running Prometheus deployed.
-	// 确保有一个StatefulSet运行我们部署的Prometheus资源的对象
 	obj, exists, err = c.ssetInf.GetIndexer().GetByKey(prometheusKeyToStatefulSetKey(key))
 	if err != nil {
 		return errors.Wrap(err, "retrieving statefulset failed")
@@ -1106,14 +1138,12 @@ func (c *Operator) sync(key string) error {
 		return err
 	}
 
-	// 创建StatefulSet
 	sset, err := makeStatefulSet(*p, &c.config, ruleConfigMapNames, newSSetInputHash)
 	if err != nil {
 		return errors.Wrap(err, "making statefulset failed")
 	}
 
 	if !exists {
-		// 如果statefulset不存在，就创建一个
 		level.Debug(c.logger).Log("msg", "no current Prometheus statefulset found")
 		level.Debug(c.logger).Log("msg", "creating Prometheus statefulset")
 		if _, err := ssetClient.Create(sset); err != nil {
@@ -1124,14 +1154,13 @@ func (c *Operator) sync(key string) error {
 
 	oldSSetInputHash := obj.(*appsv1.StatefulSet).ObjectMeta.Annotations[sSetInputHashName]
 	if newSSetInputHash == oldSSetInputHash {
-		// 新的statefulset的generation inputs和当前的相等，因此没有必要做任何操作
 		level.Debug(c.logger).Log("msg", "new statefulset generation inputs match current, skipping any actions")
 		return nil
 	}
 
 	level.Debug(c.logger).Log("msg", "updating current Prometheus statefulset")
 
-	// 否则，更新statefulset
+	// 更新statefulset
 	_, err = ssetClient.Update(sset)
 	sErr, ok := err.(*apierrors.StatusError)
 
@@ -1394,6 +1423,11 @@ func (c *Operator) createOrUpdateConfigurationSecret(p *monitoringv1.Prometheus,
 		return errors.Wrap(err, "selecting ServiceMonitors failed")
 	}
 
+	pmons, err := c.selectPodMonitors(p)
+	if err != nil {
+		return errors.Wrap(err, "selecting PodMonitors failed")
+	}
+
 	sClient := c.kclient.CoreV1().Secrets(p.Namespace)
 	SecretsInPromNS, err := sClient.List(metav1.ListOptions{})
 	if err != nil {
@@ -1405,7 +1439,6 @@ func (c *Operator) createOrUpdateConfigurationSecret(p *monitoringv1.Prometheus,
 		return err
 	}
 
-	// 加载额外的Scrape Configs
 	additionalScrapeConfigs, err := c.loadAdditionalScrapeConfigsSecret(p.Spec.AdditionalScrapeConfigs, SecretsInPromNS)
 	if err != nil {
 		return errors.Wrap(err, "loading additional scrape configs from Secret failed")
@@ -1423,6 +1456,7 @@ func (c *Operator) createOrUpdateConfigurationSecret(p *monitoringv1.Prometheus,
 	conf, err := c.configGenerator.generateConfig(
 		p,
 		smons,
+		pmons,
 		basicAuthSecrets,
 		additionalScrapeConfigs,
 		additionalAlertRelabelConfigs,
@@ -1439,12 +1473,10 @@ func (c *Operator) createOrUpdateConfigurationSecret(p *monitoringv1.Prometheus,
 	}
 
 	// Compress config to avoid 1mb secret limit for a while
-	// 压缩config，从而暂时避免对于1mb的secret限制
 	var buf bytes.Buffer
 	if err = gzipConfig(&buf, conf); err != nil {
 		return errors.Wrap(err, "couldnt gzip config")
 	}
-	// 将配置压缩写入
 	s.Data[configFilename] = buf.Bytes()
 
 	curSecret, err := sClient.Get(s.Name, metav1.GetOptions{})
@@ -1468,9 +1500,7 @@ func (c *Operator) createOrUpdateConfigurationSecret(p *monitoringv1.Prometheus,
 		level.Debug(c.logger).Log("msg", "no current Prometheus configuration secret found", "currentConfigFound", curConfigFound)
 	}
 
-	// 更新prometheus的configuration secret
 	level.Debug(c.logger).Log("msg", "updating Prometheus configuration secret")
-	// 更新secret
 	_, err = sClient.Update(s)
 	return err
 }
@@ -1520,9 +1550,51 @@ func (c *Operator) selectServiceMonitors(p *monitoringv1.Prometheus) (map[string
 	return res, nil
 }
 
+func (c *Operator) selectPodMonitors(p *monitoringv1.Prometheus) (map[string]*monitoringv1.PodMonitor, error) {
+	namespaces := []string{}
+	// Selectors might overlap. Deduplicate them along the keyFunc.
+	res := make(map[string]*monitoringv1.PodMonitor)
+
+	podMonSelector, err := metav1.LabelSelectorAsSelector(p.Spec.PodMonitorSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	// If 'PodMonitorNamespaceSelector' is nil only check own namespace.
+	if p.Spec.PodMonitorNamespaceSelector == nil {
+		namespaces = append(namespaces, p.Namespace)
+	} else {
+		podMonNSSelector, err := metav1.LabelSelectorAsSelector(p.Spec.PodMonitorNamespaceSelector)
+		if err != nil {
+			return nil, err
+		}
+
+		namespaces, err = c.listMatchingNamespaces(podMonNSSelector)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	level.Debug(c.logger).Log("msg", "filtering namespaces to select PodMonitors from", "namespaces", strings.Join(namespaces, ","), "namespace", p.Namespace, "prometheus", p.Name)
+
+	podMonitors := []string{}
+	for _, ns := range namespaces {
+		cache.ListAllByNamespace(c.pmonInf.GetIndexer(), ns, podMonSelector, func(obj interface{}) {
+			k, ok := c.keyFunc(obj)
+			if ok {
+				res[k] = obj.(*monitoringv1.PodMonitor)
+				podMonitors = append(podMonitors, k)
+			}
+		})
+	}
+
+	level.Debug(c.logger).Log("msg", "selected PodMonitors", "podmonitors", strings.Join(podMonitors, ","), "namespace", p.Namespace, "prometheus", p.Name)
+
+	return res, nil
+}
+
 // listMatchingNamespaces lists all the namespaces that match the provided
 // selector.
-// listMatchingNamespaces列举所有匹配提供的selector的namespaces
 func (c *Operator) listMatchingNamespaces(selector labels.Selector) ([]string, error) {
 	var ns []string
 	err := cache.ListAll(c.nsInf.GetStore(), selector, func(obj interface{}) {
@@ -1535,10 +1607,10 @@ func (c *Operator) listMatchingNamespaces(selector labels.Selector) ([]string, e
 }
 
 func (c *Operator) createCRDs() error {
-	// 定义三个CRD
 	crds := []*extensionsobj.CustomResourceDefinition{
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.Prometheus, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.ServiceMonitor, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
+		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.PodMonitor, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.PrometheusRule, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
 	}
 
@@ -1550,14 +1622,12 @@ func (c *Operator) createCRDs() error {
 			return errors.Wrapf(err, "getting CRD: %s", crd.Spec.Names.Kind)
 		}
 		if apierrors.IsNotFound(err) {
-			// 如果CRD不存在则创建之
 			if _, err := crdClient.Create(crd); err != nil {
 				return errors.Wrapf(err, "creating CRD: %s", crd.Spec.Names.Kind)
 			}
 			level.Info(c.logger).Log("msg", "CRD created", "crd", crd.Spec.Names.Kind)
 		}
 		if err == nil {
-			// 如果存在老的CRD则更新之
 			crd.ResourceVersion = oldCRD.ResourceVersion
 			if _, err := crdClient.Update(crd); err != nil {
 				return errors.Wrapf(err, "creating CRD: %s", crd.Spec.Names.Kind)
@@ -1591,6 +1661,16 @@ func (c *Operator) createCRDs() error {
 			}).List,
 		},
 		{
+			monitoringv1.PodMonitorsKind,
+			listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
+				return &cache.ListWatch{
+					ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+						return c.mclient.MonitoringV1().PodMonitors(namespace).List(options)
+					},
+				}
+			}).List,
+		},
+		{
 			monitoringv1.PrometheusRuleKind,
 			listwatch.MultiNamespaceListerWatcher(c.config.Namespaces, func(namespace string) cache.ListerWatcher {
 				return &cache.ListWatch{
@@ -1603,7 +1683,6 @@ func (c *Operator) createCRDs() error {
 	}
 
 	for _, crdListFunc := range crdListFuncs {
-		// 等待CRI创建成功
 		err := k8sutil.WaitForCRDReady(crdListFunc.listFunc)
 		if err != nil {
 			return errors.Wrapf(err, "waiting for %v crd failed", crdListFunc.name)

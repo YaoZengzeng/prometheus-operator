@@ -45,6 +45,7 @@ func NewCacheMutationDetector(name string) CacheMutationDetector {
 	if !mutationDetectionEnabled {
 		return dummyMutationDetector{}
 	}
+	// 使能Mutation detector，会导致内存泄漏
 	klog.Warningln("Mutation detector is enabled, this will result in memory leakage.")
 	return &defaultCacheMutationDetector{name: name, period: 1 * time.Second}
 }
@@ -59,6 +60,8 @@ func (dummyMutationDetector) AddObject(obj interface{}) {
 // defaultCacheMutationDetector gives a way to detect if a cached object has been mutated
 // It has a list of cached objects and their copies.  I haven't thought of a way
 // to see WHO is mutating it, just that it's getting mutated.
+// defaultCacheMutationDetector提供了一种方法用于检测一个缓存的对象是否突变了
+// 它有一系列缓存的对象以及它们的拷贝
 type defaultCacheMutationDetector struct {
 	name   string
 	period time.Duration
