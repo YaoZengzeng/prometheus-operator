@@ -762,9 +762,56 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
 			return
 		}
-		level.Debug(c.logger).Log("msg", fmt.Sprintf("ruleConfigMapNames for %v is %v", sset.Name, ruleConfigMapNames))
+
+		updateStatefulSetSpec(sset, ruleConfigMapNames)
+		ssetClient := c.kclient.AppsV1().StatefulSets(sset.Namespace)
+		_, err = ssetClient.Update(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
+		}
 	}
 
+}
+
+func updateStatefulSetSpec(sset *appsv1.StatefulSet, ruleConfigMapNames []string) {
+	volumes := sset.Spec.Template.Spec.Volumes
+	volumesMap := map[string]struct{}{}
+	for _, volume := range volumes {
+		volumesMap[volume.Name] = struct{}{}
+	}
+
+	ruleVolumes := []v1.Volume{}
+	for _, name := range ruleConfigMapNames {
+		// Filter duplicated volumes.
+		if _, ok := volumesMap[name]; ok {
+			continue
+		}
+		ruleVolumes = append(ruleVolumes, v1.Volume{
+			Name:	name,
+			VolumeSource:	v1.VolumeSource{
+				ConfigMap:	&v1.ConfigMapVolumeSource{
+					LocalObjectReference:	v1.LocalObjectReference{
+						Name: name,
+					},
+				},
+			},
+		})
+	}
+	volumes = append(volumes, ruleVolumes...)
+	sset.Spec.Template.Spec.Volumes = volumes
+
+	ruleVolumeMounts := []v1.VolumeMount{}
+	for _, volume := range ruleVolumes {
+		ruleVolumeMounts = append(ruleVolumeMounts, v1.VolumeMount{
+			Name:	volume.Name,
+			MountPath:	rulesDir + "/" + volume.Name,
+		})
+	}
+
+	containers := sset.Spec.Template.Spec.Containers
+	for i, _ := range containers {
+		containers[i].VolumeMounts = append(containers[i].VolumeMounts, ruleVolumeMounts...)
+	}
 }
 
 // TODO: Don't enque just for the namespace
@@ -1073,6 +1120,7 @@ func (c *Operator) sync(key string) error {
 	}
 	if !exists {
 		// Dependent resources are cleaned up by K8s via OwnerReferences
+		// 依赖的资源被K8s通过OwnerReferences清除了
 		return nil
 	}
 
@@ -1157,6 +1205,7 @@ func (c *Operator) sync(key string) error {
 
 	level.Debug(c.logger).Log("msg", "updating current Prometheus statefulset")
 
+	// 更新statefulset
 	_, err = ssetClient.Update(sset)
 	sErr, ok := err.(*apierrors.StatusError)
 
