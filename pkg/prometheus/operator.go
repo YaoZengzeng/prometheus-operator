@@ -739,17 +739,32 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
 	}
 
-	ssets := []string{}
+	ssets := []*appsv1.StatefulSet{}
+	ssetsKeys := []string{}
 	err = cache.ListAll(c.ssetInf.GetStore(), selector, func(obj interface{}) {
 		sset := obj.(*appsv1.StatefulSet)
-		ssets = append(ssets, fmt.Sprintf("%v-%v", sset.Namespace, sset.Name))
+		sset = sset.DeepCopy()
+		sset.APIVersion = "apps/v1"
+		sset.Kind = "StatefulSet"
+		ssets = append(ssets, sset)
+		ssetsKeys = append(ssetsKeys, fmt.Sprintf("%v/%v", sset.Namespace, sset.Name))
 	})
 	if err != nil {
 		level.Error(c.logger).Log("error", "cache.ListAll failed in handleRuleAdd")
 		return
 	}
 
-	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssets))
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
+
+	for _, sset := range ssets {
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+			return
+		}
+		level.Debug(c.logger).Log("msg", fmt.Sprintf("ruleConfigMapNames for %v is %v", sset.Name, ruleConfigMapNames))
+	}
+
 }
 
 // TODO: Don't enque just for the namespace
