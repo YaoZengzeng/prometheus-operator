@@ -730,6 +730,104 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 	}
 }*/
 
+func (c *Operator) handleRuleUpdate(old, cur interface{}) {
+	if old.(*monitoringv1.PrometheusRule).ResourceVersion == cur.(*monitoringv1.PrometheusRule).ResourceVersion {
+		return
+	}
+
+	o, ok := c.getObject(cur)
+	if !ok {
+		level.Error(c.logger).Log("error", "getObject in handleRuleUpdate failed")
+		return
+	}
+	level.Debug(c.logger).Log("msg", "PrometheusRule updated")
+	labels := o.GetLabels()
+
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
+	}
+
+	ssets := []*appsv1.StatefulSet{}
+	ssetsKeys := []string{}
+	err = cache.ListAll(c.ssetInf.GetStore(), selector, func(obj interface{}) {
+		sset := obj.(*appsv1.StatefulSet)
+		sset = sset.DeepCopy()
+		sset.APIVersion = "apps/v1"
+		sset.Kind = "StatefulSet"
+		ssets = append(ssets, sset)
+		ssetsKeys = append(ssetsKeys, fmt.Sprintf("%v/%v", sset.Namespace, sset.Name))
+	})
+	if err != nil {
+		level.Error(c.logger).Log("error", "cache.ListAll failed in handleRuleAdd")
+		return
+	}
+
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
+
+	for _, sset := range ssets {
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+			return
+		}
+
+		updateStatefulSetSpec(sset, ruleConfigMapNames)
+		ssetClient := c.kclient.AppsV1().StatefulSets(sset.Namespace)
+		_, err = ssetClient.Update(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
+		}
+	}
+}
+
+func (c *Operator) handleRuleDelete(obj interface{}) {
+	o, ok := c.getObject(obj)
+	if !ok {
+		level.Error(c.logger).Log("error", "getObject in handleRuleDelete failed")
+		return
+	}
+	level.Debug(c.logger).Log("msg", "PrometheusRule deleted")
+	labels := o.GetLabels()
+
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
+	}
+
+	ssets := []*appsv1.StatefulSet{}
+	ssetsKeys := []string{}
+	err = cache.ListAll(c.ssetInf.GetStore(), selector, func(obj interface{}) {
+		sset := obj.(*appsv1.StatefulSet)
+		sset = sset.DeepCopy()
+		sset.APIVersion = "apps/v1"
+		sset.Kind = "StatefulSet"
+		ssets = append(ssets, sset)
+		ssetsKeys = append(ssetsKeys, fmt.Sprintf("%v/%v", sset.Namespace, sset.Name))
+	})
+	if err != nil {
+		level.Error(c.logger).Log("error", "cache.ListAll failed in handleRuleAdd")
+		return
+	}
+
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
+
+	for _, sset := range ssets {
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+			return
+		}
+
+		updateStatefulSetSpec(sset, ruleConfigMapNames)
+		ssetClient := c.kclient.AppsV1().StatefulSets(sset.Namespace)
+		_, err = ssetClient.Update(sset)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
+		}
+	}	
+}
+
 func (c *Operator) handleRuleAdd(obj interface{}) {
 	r := obj.(*monitoringv1.PrometheusRule)
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("PrometheusRule added: %v", r))
@@ -812,8 +910,18 @@ func updateStatefulSetSpec(sset *appsv1.StatefulSet, ruleConfigMapNames []string
 	for i, _ := range containers {
 		containers[i].VolumeMounts = append(containers[i].VolumeMounts, ruleVolumeMounts...)
 	}
+
+	// Set other fields to empty.
+	sset.ObjectMeta = metav1.ObjectMeta{
+		Name:			sset.ObjectMeta.Name,
+		Labels:			sset.ObjectMeta.Labels,
+		Annotations:	sset.ObjectMeta.Annotations,
+	}
+
+	return
 }
 
+/*
 // TODO: Don't enque just for the namespace
 func (c *Operator) handleRuleUpdate(old, cur interface{}) {
 	if old.(*monitoringv1.PrometheusRule).ResourceVersion == cur.(*monitoringv1.PrometheusRule).ResourceVersion {
@@ -827,8 +935,9 @@ func (c *Operator) handleRuleUpdate(old, cur interface{}) {
 
 		c.enqueueForNamespace(o.GetNamespace())
 	}
-}
+}*/
 
+/*
 // TODO: Don't enque just for the namespace
 func (c *Operator) handleRuleDelete(obj interface{}) {
 	o, ok := c.getObject(obj)
@@ -838,7 +947,7 @@ func (c *Operator) handleRuleDelete(obj interface{}) {
 
 		c.enqueueForNamespace(o.GetNamespace())
 	}
-}
+}*/
 
 // TODO: Do we need to enque secrets just for the namespace or in general?
 func (c *Operator) handleSecretDelete(obj interface{}) {
