@@ -768,10 +768,12 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 
 // TODO: Don't enque just for the namespace
 func (c *Operator) handleRuleUpdate(old, cur interface{}) {
+	// 如果ResourceVerions没有变更，直接返回
 	if old.(*monitoringv1.PrometheusRule).ResourceVersion == cur.(*monitoringv1.PrometheusRule).ResourceVersion {
 		return
 	}
 
+	// 获取cur的object，直接插入处理
 	o, ok := c.getObject(cur)
 	if ok {
 		level.Debug(c.logger).Log("msg", "PrometheusRule updated")
@@ -863,6 +865,7 @@ func (c *Operator) handleConfigMapUpdate(old, cur interface{}) {
 }
 
 func (c *Operator) getObject(obj interface{}) (metav1.Object, bool) {
+	// 如果obj为DeletedFinalStateUnkown，则获取它的Obj，返回
 	ts, ok := obj.(cache.DeletedFinalStateUnknown)
 	if ok {
 		obj = ts.Obj
@@ -1053,6 +1056,7 @@ func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 	// Periodic resync may resend the StatefulSet without changes
 	// in-between. Also breaks loops created by updating the resource
 	// ourselves.
+	// 阶段性地resync可能发送没有变更的StatefulSet
 	if old.ResourceVersion == cur.ResourceVersion {
 		return
 	}
