@@ -31,7 +31,6 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const labelPrometheusName = "prometheus-name"
@@ -42,25 +41,16 @@ const labelPrometheusName = "prometheus-name"
 // large buffer.
 var maxConfigMapDataSize = int(float64(v1.MaxSecretSize) * 0.5)
 
-func (c *Operator) createOrUpdateRuleConfigMapsNew(sset *appsv1.StatefulSet) ([]string, error) {
+func (c *Operator) createOrUpdateRuleConfigMapsNew(sset *appsv1.StatefulSet, rules []*monitoringv1.PrometheusRule) ([]string, error) {
 	cClient := c.kclient.CoreV1().ConfigMaps(sset.Namespace)
 
-	var marshalErr error
 	newRules := map[string]string{}
-	err := cache.ListAll(c.ruleInf.GetStore(), labels.Everything(), func(obj interface{}) {
-		rule := obj.(*monitoringv1.PrometheusRule)
+	for _, rule := range rules {
 		content, err := yaml.Marshal(rule.Spec)
 		if err != nil {
-			marshalErr = err
-			return
+			return nil, err
 		}
 		newRules[fmt.Sprintf("%v-%v.yaml", rule.Namespace, rule.Name)] = string(content)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if marshalErr != nil {
-		return nil, marshalErr
 	}
 
 	ruleNames := []string{}

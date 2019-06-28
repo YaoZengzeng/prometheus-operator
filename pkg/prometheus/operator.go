@@ -765,8 +765,17 @@ func (c *Operator) handleRuleUpdate(old, cur interface{}) {
 
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
 
+	rules, err := c.listAllRules()
+	if err != nil {
+		level.Error(c.logger).Log("error", "listAllRules failed in handleRuleAdd")
+		return
+	}
 	for _, sset := range ssets {
-		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		matchedRules, err := c.selectMatchedRules(sset.Labels, rules)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("selectMatchedRules() for %v failed: %v", sset.Name, err))
+		}
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset, matchedRules)
 		if err != nil {
 			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
 			return
@@ -779,6 +788,18 @@ func (c *Operator) handleRuleUpdate(old, cur interface{}) {
 			level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
 		}
 	}
+}
+
+func (c *Operator) handleStatefulSetDelete(obj interface{}) {
+	o, ok := c.getObject(obj)
+	if !ok {
+		level.Error(c.logger).Log("error", "getObject in handleStatefulSetDelete failed")
+		return
+	}
+	level.Debug(c.logger).Log("msg", "StatefulSet deleted")
+	labels := o.GetLabels()
+
+	level.Debug(c.logger).Log("msg", fmt.Sprintf("The deleted StatefulSet's labels is %v", labels))
 }
 
 func (c *Operator) handleRuleDelete(obj interface{}) {
@@ -812,8 +833,17 @@ func (c *Operator) handleRuleDelete(obj interface{}) {
 
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
 
+	rules, err := c.listAllRules()
+	if err != nil {
+		level.Error(c.logger).Log("error", "listAllRules failed in handleRuleAdd")
+		return
+	}
 	for _, sset := range ssets {
-		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		matchedRules, err := c.selectMatchedRules(sset.Labels, rules)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("selectMatchedRules() for %v failed: %v", sset.Name, err))
+		}
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset, matchedRules)
 		if err != nil {
 			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
 			return
@@ -828,19 +858,36 @@ func (c *Operator) handleRuleDelete(obj interface{}) {
 	}
 }
 
-func (c *Operator) handleStatefulSetAdd(obj interface{}) {
-	sset := obj.(*appsv1.StatefulSet)
+func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
+	old := oldo.(*appsv1.StatefulSet)
+	cur := curo.(*appsv1.StatefulSet)
+
+	level.Debug(c.logger).Log("msg", "Update StatefulSet")
+
+	// Periodic resync may resend the StatefulSet without changes
+	// in-between. Also breaks loops created by updating the resource
+	// ourselves.
+	if old.ResourceVersion == cur.ResourceVersion {
+		return
+	}
+
+	sset := cur
 	sset = sset.DeepCopy()
 	sset.APIVersion = "apps/v1"
 	sset.Kind = "StatefulSet"
 
-	level.Debug(c.logger).Log("msg", "add statefulset")
+	level.Debug(c.logger).Log("msg", "Add StatefulSet")
 
 	labels := sset.Labels
-
-	rules, err := c.listMatchedRules(labels)
+	rules, err := c.listAllRules()
 	if err != nil {
-		level.Error(c.logger).Log("error", fmt.Sprintf("listMatchedRules failed: %v", err))
+		level.Error(c.logger).Log("error", fmt.Sprintf("listAllRules failed: %v", err))
+		return
+	}
+
+	rules, err = c.selectMatchedRules(labels, rules)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("selectMatchedRules failed: %v", err))
 		return
 	}
 
@@ -849,9 +896,7 @@ func (c *Operator) handleStatefulSetAdd(obj interface{}) {
 		return
 	}
 
-	// Mount all rules if the StatefulSet matches one of the rules.
-	// TODO: StatefulSet and PrometheusRules bidirectional matching.
-	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset, rules)
 	if err != nil {
 		level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
 		return
@@ -865,20 +910,70 @@ func (c *Operator) handleStatefulSetAdd(obj interface{}) {
 	}
 }
 
-func (c *Operator) listMatchedRules(matchLabels map[string]string) ([]*monitoringv1.PrometheusRule, error) {
-	rules := []*monitoringv1.PrometheusRule{}
-	for _, obj := range c.ruleInf.GetStore().List() {
-		rule := obj.(*monitoringv1.PrometheusRule)
+func (c *Operator) handleStatefulSetAdd(obj interface{}) {
+	sset := obj.(*appsv1.StatefulSet)
+	sset = sset.DeepCopy()
+	sset.APIVersion = "apps/v1"
+	sset.Kind = "StatefulSet"
+
+	level.Debug(c.logger).Log("msg", "Add StatefulSet")
+
+	labels := sset.Labels
+
+	rules, err := c.listAllRules()
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("listAllRules failed: %v", err))
+		return
+	}
+
+	rules, err = c.selectMatchedRules(labels, rules)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("selectMatchedRules failed: %v", err))
+		return
+	}
+
+	// No rules match the StatefulSet, just return.
+	if len(rules) == 0 {
+		return
+	}
+
+	// Mount all rules if the StatefulSet matches one of the rules.
+	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset, rules)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+		return
+	}
+
+	updateStatefulSetSpec(sset, ruleConfigMapNames)
+	ssetClient := c.kclient.AppsV1().StatefulSets(sset.Namespace)
+	_, err = ssetClient.Update(sset)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
+	}
+}
+
+func (c *Operator) selectMatchedRules(matchLabels map[string]string, rules []*monitoringv1.PrometheusRule) ([]*monitoringv1.PrometheusRule, error) {
+	result := []*monitoringv1.PrometheusRule{}
+	for _, rule := range rules {
 		selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: rule.Labels})
 		if err != nil {
 			return nil, err
 		}
 
 		if selector.Matches(labels.Set(matchLabels)) {
-			rules = append(rules, rule)
+			result = append(result, rule)
 		}
 	}
 
+	return result, nil
+}
+
+func (c *Operator) listAllRules() ([]*monitoringv1.PrometheusRule, error) {
+	rules := []*monitoringv1.PrometheusRule{}
+	cache.ListAll(c.ruleInf.GetStore(), labels.Everything(), func(obj interface{}) {
+		rule := obj.(*monitoringv1.PrometheusRule)
+		rules = append(rules, rule)
+	})
 	return rules, nil
 }
 
@@ -908,8 +1003,17 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
 
+	rules, err := c.listAllRules()
+	if err != nil {
+		level.Error(c.logger).Log("error", "listAllRules failed in handleRuleAdd")
+		return
+	}
 	for _, sset := range ssets {
-		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+		matchedRules, err := c.selectMatchedRules(sset.Labels, rules)
+		if err != nil {
+			level.Error(c.logger).Log("error", fmt.Sprintf("selectMatchedRules() for %v failed: %v", sset.Name, err))
+		}
+		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset, matchedRules)
 		if err != nil {
 			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
 			return
@@ -1238,6 +1342,7 @@ func prometheusKeyToStatefulSetKey(key string) string {
 	return keyParts[0] + "/prometheus-" + keyParts[1]
 }
 
+/*
 func (c *Operator) handleStatefulSetDelete(obj interface{}) {
 	if ps := c.prometheusForStatefulSet(obj); ps != nil {
 		level.Debug(c.logger).Log("msg", "StatefulSet delete")
@@ -1245,7 +1350,7 @@ func (c *Operator) handleStatefulSetDelete(obj interface{}) {
 
 		c.enqueue(ps)
 	}
-}
+}*/
 
 /*
 func (c *Operator) handleStatefulSetAdd(obj interface{}) {
@@ -1257,6 +1362,7 @@ func (c *Operator) handleStatefulSetAdd(obj interface{}) {
 	}
 }*/
 
+/*
 func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 	old := oldo.(*appsv1.StatefulSet)
 	cur := curo.(*appsv1.StatefulSet)
@@ -1276,7 +1382,7 @@ func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 
 		c.enqueue(ps)
 	}
-}
+}*/
 
 func (c *Operator) sync(key string) error {
 	obj, exists, err := c.promInf.GetIndexer().GetByKey(key)
