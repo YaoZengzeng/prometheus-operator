@@ -825,7 +825,61 @@ func (c *Operator) handleRuleDelete(obj interface{}) {
 		if err != nil {
 			level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
 		}
-	}	
+	}
+}
+
+func (c *Operator) handleStatefulSetAdd(obj interface{}) {
+	sset := obj.(*appsv1.StatefulSet)
+	sset = sset.DeepCopy()
+	sset.APIVersion = "apps/v1"
+	sset.Kind = "StatefulSet"
+
+	level.Debug(c.logger).Log("msg", "add statefulset")
+
+	labels := sset.Labels
+
+	rules, err := c.listMatchedRules(labels)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("listMatchedRules failed: %v", err))
+		return
+	}
+
+	// No rules match the StatefulSet, just return.
+	if len(rules) == 0 {
+		return
+	}
+
+	// Mount all rules if the StatefulSet matches one of the rules.
+	// TODO: StatefulSet and PrometheusRules bidirectional matching.
+	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
+		return
+	}
+
+	updateStatefulSetSpec(sset, ruleConfigMapNames)
+	ssetClient := c.kclient.AppsV1().StatefulSets(sset.Namespace)
+	_, err = ssetClient.Update(sset)
+	if err != nil {
+		level.Error(c.logger).Log("error", fmt.Sprintf("Update StatefulSet for %v failed: %v", sset.Name, err))
+	}
+}
+
+func (c *Operator) listMatchedRules(matchLabels map[string]string) ([]*monitoringv1.PrometheusRule, error) {
+	rules := []*monitoringv1.PrometheusRule{}
+	for _, obj := range c.ruleInf.GetStore().List() {
+		rule := obj.(*monitoringv1.PrometheusRule)
+		selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: rule.Labels})
+		if err != nil {
+			return nil, err
+		}
+
+		if selector.Matches(labels.Set(matchLabels)) {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
 }
 
 func (c *Operator) handleRuleAdd(obj interface{}) {
@@ -885,10 +939,10 @@ func updateStatefulSetSpec(sset *appsv1.StatefulSet, ruleConfigMapNames []string
 			continue
 		}
 		ruleVolumes = append(ruleVolumes, v1.Volume{
-			Name:	name,
-			VolumeSource:	v1.VolumeSource{
-				ConfigMap:	&v1.ConfigMapVolumeSource{
-					LocalObjectReference:	v1.LocalObjectReference{
+			Name: name,
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
 						Name: name,
 					},
 				},
@@ -901,21 +955,22 @@ func updateStatefulSetSpec(sset *appsv1.StatefulSet, ruleConfigMapNames []string
 	ruleVolumeMounts := []v1.VolumeMount{}
 	for _, volume := range ruleVolumes {
 		ruleVolumeMounts = append(ruleVolumeMounts, v1.VolumeMount{
-			Name:	volume.Name,
-			MountPath:	rulesDir + "/" + volume.Name,
+			Name:      volume.Name,
+			MountPath: rulesDir + "/" + volume.Name,
 		})
 	}
 
 	containers := sset.Spec.Template.Spec.Containers
-	for i, _ := range containers {
+	for i := range containers {
 		containers[i].VolumeMounts = append(containers[i].VolumeMounts, ruleVolumeMounts...)
 	}
 
 	// Set other fields to empty.
 	sset.ObjectMeta = metav1.ObjectMeta{
-		Name:			sset.ObjectMeta.Name,
-		Labels:			sset.ObjectMeta.Labels,
-		Annotations:	sset.ObjectMeta.Annotations,
+		Name:        sset.ObjectMeta.Name,
+		Labels:      sset.ObjectMeta.Labels,
+		Annotations: sset.ObjectMeta.Annotations,
+		Namespace:   sset.ObjectMeta.Namespace,
 	}
 
 	return
@@ -1192,6 +1247,7 @@ func (c *Operator) handleStatefulSetDelete(obj interface{}) {
 	}
 }
 
+/*
 func (c *Operator) handleStatefulSetAdd(obj interface{}) {
 	if ps := c.prometheusForStatefulSet(obj); ps != nil {
 		level.Debug(c.logger).Log("msg", "StatefulSet added")
@@ -1199,7 +1255,7 @@ func (c *Operator) handleStatefulSetAdd(obj interface{}) {
 
 		c.enqueue(ps)
 	}
-}
+}*/
 
 func (c *Operator) handleStatefulSetUpdate(oldo, curo interface{}) {
 	old := oldo.(*appsv1.StatefulSet)
