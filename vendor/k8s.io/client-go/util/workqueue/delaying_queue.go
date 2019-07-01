@@ -29,6 +29,7 @@ import (
 type DelayingInterface interface {
 	Interface
 	// AddAfter adds an item to the workqueue after the indicated duration has passed
+	// AddAfter在指定的时间段过去之后在workqueue中加入一个item
 	AddAfter(item interface{}, duration time.Duration)
 }
 
@@ -58,6 +59,7 @@ func newDelayingQueue(clock clock.Clock, name string) DelayingInterface {
 }
 
 // delayingType wraps an Interface and provides delayed re-enquing
+// delayingType封装了一个Interface并且提供delayed re-enquing
 type delayingType struct {
 	Interface
 
@@ -87,6 +89,7 @@ type waitFor struct {
 }
 
 // waitForPriorityQueue implements a priority queue for waitFor items.
+// waitForPriorityQueue为waitFor items实现了一个优先队列
 //
 // waitForPriorityQueue implements heap.Interface. The item occurring next in
 // time (i.e., the item with the smallest readyAt) is at the root (index 0).
@@ -143,6 +146,7 @@ func (q *delayingType) ShutDown() {
 // AddAfter adds the given item to the work queue after the given delay
 func (q *delayingType) AddAfter(item interface{}, duration time.Duration) {
 	// don't add if we're already shutting down
+	// 如果队列已经关闭了，则不再添加
 	if q.ShuttingDown() {
 		return
 	}
@@ -169,6 +173,7 @@ func (q *delayingType) AddAfter(item interface{}, duration time.Duration) {
 const maxWait = 10 * time.Second
 
 // waitingLoop runs until the workqueue is shutdown and keeps a check on the list of items to be added.
+// waitingLoop运行直到workqueue关闭并且检查被添加的items
 func (q *delayingType) waitingLoop() {
 	defer utilruntime.HandleCrash()
 
@@ -189,6 +194,8 @@ func (q *delayingType) waitingLoop() {
 
 		// Add ready entries
 		for waitingForQueue.Len() > 0 {
+			// 如果waitingForQueue中已经有准备好的entries，则直接从heap中
+			// 取出并添加到队列中
 			entry := waitingForQueue.Peek().(*waitFor)
 			if entry.readyAt.After(now) {
 				break
@@ -200,6 +207,7 @@ func (q *delayingType) waitingLoop() {
 		}
 
 		// Set up a wait for the first item's readyAt (if one exists)
+		// 设置一个wait，等待第一个item的readyAt
 		nextReadyAt := never
 		if waitingForQueue.Len() > 0 {
 			entry := waitingForQueue.Peek().(*waitFor)
@@ -217,14 +225,18 @@ func (q *delayingType) waitingLoop() {
 			// continue the loop, which will add ready items
 
 		case waitEntry := <-q.waitingForAddCh:
+			// 等待q.waitingForAddCh中传来entry
 			if waitEntry.readyAt.After(q.clock.Now()) {
+				// 否则线插入优先队列
 				insert(waitingForQueue, waitingEntryByData, waitEntry)
 			} else {
+				// 如果传来的entry已经到了，就直接入队
 				q.Add(waitEntry.data)
 			}
 
 			drained := false
 			for !drained {
+				// 榨干waitingForAddCh
 				select {
 				case waitEntry := <-q.waitingForAddCh:
 					if waitEntry.readyAt.After(q.clock.Now()) {

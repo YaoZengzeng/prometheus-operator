@@ -26,16 +26,21 @@ import (
 
 type RateLimiter interface {
 	// When gets an item and gets to decide how long that item should wait
+	// When获取一个item并且决定item需要等待的时间
 	When(item interface{}) time.Duration
 	// Forget indicates that an item is finished being retried.  Doesn't matter whether its for perm failing
 	// or for success, we'll stop tracking it
+	// Forget表示item在retry之后已经finished了，不管它是失败还是成功的，我们都会停止追踪它
 	Forget(item interface{})
 	// NumRequeues returns back how many failures the item has had
+	// NumRequeues返回item经历过的failures
 	NumRequeues(item interface{}) int
 }
 
 // DefaultControllerRateLimiter is a no-arg constructor for a default rate limiter for a workqueue.  It has
 // both overall and per-item rate limiting.  The overall is a token bucket and the per-item is exponential
+// DefaultControllerRateLimiter是一个workqueue默认的rate limiter的无参构造器，它同时有着对于全局的和每个item的限速
+// 全局的是一个token bucket，而每个item的是指数回退
 func DefaultControllerRateLimiter() RateLimiter {
 	return NewMaxOfRateLimiter(
 		NewItemExponentialFailureRateLimiter(5*time.Millisecond, 1000*time.Second),
@@ -64,6 +69,8 @@ func (r *BucketRateLimiter) Forget(item interface{}) {
 
 // ItemExponentialFailureRateLimiter does a simple baseDelay*2^<num-failures> limit
 // dealing with max failures and expiration are up to the caller
+// ItemExponentialFailureRateLimiter做一个简单的baseDelay * 2^<num-failures> limit
+// 其中最大的failures和expiration决定于调用者
 type ItemExponentialFailureRateLimiter struct {
 	failuresLock sync.Mutex
 	failures     map[interface{}]int
@@ -172,6 +179,8 @@ func (r *ItemFastSlowRateLimiter) Forget(item interface{}) {
 // MaxOfRateLimiter calls every RateLimiter and returns the worst case response
 // When used with a token bucket limiter, the burst could be apparently exceeded in cases where particular items
 // were separately delayed a longer time.
+// MaxOfRateLimiter调用每一个RateLimiter并且在使用token bucket limiter的时候返回最差的response
+// burst会被显示地突破，当特定的items被分别延迟一个较长的时间
 type MaxOfRateLimiter struct {
 	limiters []RateLimiter
 }

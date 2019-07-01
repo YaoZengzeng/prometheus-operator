@@ -206,6 +206,7 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		mclient:                mclient,
 		crdclient:              crdclient,
 		logger:                 logger,
+		// 创建workqueue
 		queue:                  workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "prometheus"),
 		host:                   cfg.Host,
 		kubeletObjectName:      kubeletObjectName,
@@ -470,6 +471,7 @@ func (c *Operator) keyFunc(obj interface{}) (string, bool) {
 }
 
 func (c *Operator) handlePrometheusAdd(obj interface{}) {
+	// 直接抽取key
 	key, ok := c.keyFunc(obj)
 	if !ok {
 		return
@@ -881,6 +883,7 @@ func (c *Operator) getObject(obj interface{}) (metav1.Object, bool) {
 
 // enqueue adds a key to the queue. If obj is a key already it gets added
 // directly. Otherwise, the key is extracted via keyFunc.
+// enqueue增加一个key到队列中，如果obj已经是一个key了，直接入队，否则通过keyFunc进行抽取
 func (c *Operator) enqueue(obj interface{}) {
 	if obj == nil {
 		return
@@ -982,6 +985,8 @@ func (c *Operator) processNextWorkItem() bool {
 
 	err := c.sync(key.(string))
 	if err == nil {
+		// 如果同步没有错误，则将其Forget
+		// Forget是将key从RateLimiter中移除
 		c.queue.Forget(key)
 		return true
 	}

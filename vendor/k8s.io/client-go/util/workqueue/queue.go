@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/clock"
 )
 
+// 队列的标准接口
 type Interface interface {
 	Add(item interface{})
 	Len() int
@@ -62,19 +63,26 @@ func newQueue(c clock.Clock, metrics queueMetrics, updatePeriod time.Duration) *
 const defaultUnfinishedWorkUpdatePeriod = 500 * time.Millisecond
 
 // Type is a work queue (see the package comment).
+// Type就是一个工作队列
 type Type struct {
 	// queue defines the order in which we will work on items. Every
 	// element of queue should be in the dirty set and not in the
 	// processing set.
+	// queue定义了我们处理items的顺序，每个队列中的items都应该在dirty set而不是
+	// 在processing set
 	queue []t
 
 	// dirty defines all of the items that need to be processed.
+	// dirty定义了需要被处理的items
 	dirty set
 
 	// Things that are currently being processed are in the processing set.
 	// These things may be simultaneously in the dirty set. When we finish
 	// processing something and remove it from this set, we'll check if
 	// it's in the dirty set, and if so, add it to the queue.
+	// 当前正在被处理的items在processing set中，这些items可能同时在dirty set中
+	// 当我们处理完一些item，将它从set中移除，我们需要检查它是否在dirty set中，如果是的话
+	// 将它们加入队列
 	processing set
 
 	cond *sync.Cond
@@ -105,23 +113,28 @@ func (s set) delete(item t) {
 }
 
 // Add marks item as needing processing.
+// Add将item标记为需要进行处理
 func (q *Type) Add(item interface{}) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	if q.shuttingDown {
 		return
 	}
+	// 如果item已经在dirty set中，则直接返回
 	if q.dirty.has(item) {
 		return
 	}
 
 	q.metrics.add(item)
 
+	// 否则插入dirty set
 	q.dirty.insert(item)
+	// 如果processing set中已经有item，则直接返回
 	if q.processing.has(item) {
 		return
 	}
 
+	// 将item插入队列
 	q.queue = append(q.queue, item)
 	q.cond.Signal()
 }
@@ -129,6 +142,7 @@ func (q *Type) Add(item interface{}) {
 // Len returns the current queue length, for informational purposes only. You
 // shouldn't e.g. gate a call to Add() or Get() on Len() being a particular
 // value, that can't be synchronized properly.
+// Len返回当前队列的长度，仅仅用于提供信息
 func (q *Type) Len() int {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
@@ -141,10 +155,12 @@ func (q *Type) Len() int {
 func (q *Type) Get() (item interface{}, shutdown bool) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
+	// 如果队列长度不为0且尚未关闭，则等待
 	for len(q.queue) == 0 && !q.shuttingDown {
 		q.cond.Wait()
 	}
 	if len(q.queue) == 0 {
+		// 如果跳出循环且队列的长度为0，说明队列已经关闭
 		// We must be shutting down.
 		return nil, true
 	}
@@ -153,6 +169,7 @@ func (q *Type) Get() (item interface{}, shutdown bool) {
 
 	q.metrics.get(item)
 
+	// 将item插入processing并且从dirty中删除
 	q.processing.insert(item)
 	q.dirty.delete(item)
 
@@ -162,6 +179,7 @@ func (q *Type) Get() (item interface{}, shutdown bool) {
 // Done marks item as done processing, and if it has been marked as dirty again
 // while it was being processed, it will be re-added to the queue for
 // re-processing.
+// Done将item标记为处理完毕，如果item在处理的时候被再次标记为dirty，它会重新加入队列用于re-processing
 func (q *Type) Done(item interface{}) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
@@ -170,6 +188,7 @@ func (q *Type) Done(item interface{}) {
 
 	q.processing.delete(item)
 	if q.dirty.has(item) {
+		// 如果dirty中还存在item，则将其放入queue中
 		q.queue = append(q.queue, item)
 		q.cond.Signal()
 	}
@@ -178,6 +197,8 @@ func (q *Type) Done(item interface{}) {
 // ShutDown will cause q to ignore all new items added to it. As soon as the
 // worker goroutines have drained the existing items in the queue, they will be
 // instructed to exit.
+// ShuwtDonw会让q忽略所有新添加的items，直到worker goroutine榨干了队列中已经存在的item
+// 它会被命令退出
 func (q *Type) ShutDown() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
@@ -200,6 +221,7 @@ func (q *Type) updateUnfinishedWorkLoop() {
 			q.cond.L.Lock()
 			defer q.cond.L.Unlock()
 			if !q.shuttingDown {
+				// 更新metrics
 				q.metrics.updateUnfinishedWork()
 				return true
 			}
