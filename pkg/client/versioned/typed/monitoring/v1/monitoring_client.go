@@ -31,7 +31,7 @@ type MonitoringV1Interface interface {
 	ServiceMonitorsGetter
 }
 
-// MonitoringV1Client is used to interact with features provided by the monitoring.coreos.com group.
+// MonitoringV1Client is used to interact with features provided by the monitoring.huawei.com group.
 type MonitoringV1Client struct {
 	restClient rest.Interface
 }

@@ -60,7 +60,7 @@ func New(conf prometheus.Config, l log.Logger) (*API, error) {
 }
 
 var (
-	prometheusRoute = regexp.MustCompile("/apis/monitoring.coreos.com/" + v1.Version + "/namespaces/(.*)/prometheuses/(.*)/status")
+	prometheusRoute = regexp.MustCompile("/apis/monitoring.huawei.com/" + v1.Version + "/namespaces/(.*)/prometheuses/(.*)/status")
 )
 
 func (api *API) Register(mux *http.ServeMux) {
