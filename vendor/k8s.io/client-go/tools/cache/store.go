@@ -246,6 +246,7 @@ func (c *cache) Resync() error {
 }
 
 // NewStore returns a Store implemented simply with a map and a lock.
+// NewStore返回一个Store，简单地由一个map和一个lock实现
 func NewStore(keyFunc KeyFunc) Store {
 	return &cache{
 		cacheStorage: NewThreadSafeStore(Indexers{}, Indices{}),

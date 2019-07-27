@@ -124,6 +124,7 @@ func makeValidPrometheusMetricLabel(in string) string {
 
 // internalPackages are packages that ignored when creating a default reflector name. These packages are in the common
 // call chains to NewReflector, so they'd be low entropy names for reflectors
+// internalPackages是在创建default reflector name时会被忽略的packages，这些是到NewReflector的调用链的通用包
 var internalPackages = []string{"client-go/tools/cache/"}
 
 // Run starts a watch and handles watch events. Will restart the watch if it is closed.
@@ -161,6 +162,8 @@ func (r *Reflector) resyncChan() (<-chan time.Time, func() bool) {
 	// always fail so we end up listing frequently. Then, if we don't
 	// manually stop the timer, we could end up with many timers active
 	// concurrently.
+	// cleanup函数是必须的，想象这样的场景，当watch总是失败，最后我们频繁地listing
+	// 之后我们不手动停止timer，我们最后可能会有很多active的timer
 	t := r.clock.NewTimer(r.resyncPeriod)
 	return t.C(), t.Stop
 }
@@ -208,6 +211,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		if err != nil {
 			return fmt.Errorf("%s: Failed to list %v: %v", r.name, r.expectedType, err)
 		}
+		// 对象成功被list
 		initTrace.Step("Objects listed")
 		listMetaInterface, err := meta.ListAccessor(list)
 		if err != nil {
@@ -221,6 +225,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			return fmt.Errorf("%s: Unable to understand list result %#v (%v)", r.name, list, err)
 		}
 		initTrace.Step("Objects extracted")
+		// 同步list的结果
 		if err := r.syncWith(items, resourceVersion); err != nil {
 			return fmt.Errorf("%s: Unable to sync list result: %v", r.name, err)
 		}
@@ -265,6 +270,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	// 一个无限循环进行watch
 	for {
 		// give the stopCh a chance to stop the loop, even in case of continue statements further down on errors
+		// 给stopCh一个机会停止loop
 		select {
 		case <-stopCh:
 			return nil
@@ -273,6 +279,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 
 		timeoutSeconds := int64(minWatchTimeout.Seconds() * (rand.Float64() + 1.0))
 		options = metav1.ListOptions{
+			// 从最新的ResourceVersion开始Watch
 			ResourceVersion: resourceVersion,
 			// We want to avoid situations of hanging watchers. Stop any wachers that do not
 			// receive any events within the timeout window.
@@ -280,11 +287,13 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			TimeoutSeconds: &timeoutSeconds,
 		}
 
+		// 直接进行Watch
 		w, err := r.listerWatcher.Watch(options)
 		if err != nil {
 			switch err {
 			case io.EOF:
 				// watch closed normally
+				// watch正常被关闭
 			case io.ErrUnexpectedEOF:
 				klog.V(1).Infof("%s: Watch for %v closed with unexpected EOF: %v", r.name, r.expectedType, err)
 			default:
@@ -293,6 +302,8 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			// If this is "connection refused" error, it means that most likely apiserver is not responsive.
 			// It doesn't make sense to re-list all objects because most likely we will be able to restart
 			// watch where we ended.
+			// 如果是"connection refused" error，则可能是apiserver不是responsive状态
+			// 这意味着re-list所有的对象是没有意义的，因为很可能我们可以从结束的地方开始watch
 			// If that's the case wait and resend watch request.
 			if urlError, ok := err.(*url.Error); ok {
 				if opError, ok := urlError.Err.(*net.OpError); ok {
@@ -302,9 +313,11 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 					}
 				}
 			}
+			// 否则直接return
 			return nil
 		}
 
+		// 调用watchHandler进行处理
 		if err := r.watchHandler(w, &resourceVersion, resyncerrc, stopCh); err != nil {
 			if err != errorStopRequested {
 				klog.Warningf("%s: watch of %v ended with: %v", r.name, r.expectedType, err)
@@ -340,6 +353,7 @@ loop:
 		case <-stopCh:
 			return errorStopRequested
 		case err := <-errc:
+			// 如果resync出现错误，则也会停止watch
 			return err
 		case event, ok := <-w.ResultChan():
 			// 从watch中得到一个event
@@ -347,17 +361,20 @@ loop:
 				break loop
 			}
 			if event.Type == watch.Error {
+				// Watch产生错误，就返回
 				return apierrs.FromObject(event.Object)
 			}
 			if e, a := r.expectedType, reflect.TypeOf(event.Object); e != nil && e != a {
 				utilruntime.HandleError(fmt.Errorf("%s: expected type %v, but watch event object had type %v", r.name, e, a))
 				continue
 			}
+			// 获取event.Object的元数据
 			meta, err := meta.Accessor(event.Object)
 			if err != nil {
 				utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", r.name, event))
 				continue
 			}
+			// 现在Delete watch event也有自己的resource version了
 			newResourceVersion := meta.GetResourceVersion()
 			// 再根据事件的类型更新store
 			switch event.Type {
@@ -382,6 +399,7 @@ loop:
 			default:
 				utilruntime.HandleError(fmt.Errorf("%s: unable to understand watch event %#v", r.name, event))
 			}
+			// 重新设置resourceVerionss
 			*resourceVersion = newResourceVersion
 			r.setLastSyncResourceVersion(newResourceVersion)
 			eventCount++
@@ -390,6 +408,7 @@ loop:
 
 	watchDuration := r.clock.Now().Sub(start)
 	if watchDuration < 1*time.Second && eventCount == 0 {
+		// 如果watch的时间非常短且在此期间没有收到items，则是异常的现象
 		return fmt.Errorf("very short watch: %s: Unexpected watch close - watch lasted less than a second and no items received", r.name)
 	}
 	klog.V(4).Infof("%s: Watch close - %v total %v items received", r.name, r.expectedType, eventCount)

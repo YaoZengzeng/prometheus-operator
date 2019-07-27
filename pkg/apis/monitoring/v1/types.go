@@ -53,10 +53,12 @@ type Prometheus struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// Specification of the desired behavior of the Prometheus cluster. More info:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#spec-and-status
+	// 对于期望的Prometheus cluster行为的定义
 	Spec PrometheusSpec `json:"spec"`
 	// Most recent observed status of the Prometheus cluster. Read-only. Not
 	// included when requesting from the apiserver, only from the Prometheus
 	// Operator API itself. More info:
+	// 最近发现的Prometheus cluster的状态，只读，在请求apiserver的结果中并不包含，只在Prometheus Operator自己使用
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#spec-and-status
 	Status *PrometheusStatus `json:"status,omitempty"`
 }

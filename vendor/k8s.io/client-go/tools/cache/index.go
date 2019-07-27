@@ -92,4 +92,5 @@ type Index map[string]sets.String
 type Indexers map[string]IndexFunc
 
 // Indices maps a name to an Index
+// Indices将一个name映射到一个Index
 type Indices map[string]Index

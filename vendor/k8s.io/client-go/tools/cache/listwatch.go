@@ -106,6 +106,7 @@ func NewFilteredListWatchFromClient(c Getter, resource string, namespace string,
 }
 
 // List a set of apiserver resources
+// List列举一系列的apiserver资源对象
 func (lw *ListWatch) List(options metav1.ListOptions) (runtime.Object, error) {
 	if !lw.DisableChunking {
 		return pager.New(pager.SimplePageFunc(lw.ListFunc)).List(context.TODO(), options)
@@ -114,6 +115,7 @@ func (lw *ListWatch) List(options metav1.ListOptions) (runtime.Object, error) {
 }
 
 // Watch a set of apiserver resources
+// Watch监听一系列的apiserver资源对象
 func (lw *ListWatch) Watch(options metav1.ListOptions) (watch.Interface, error) {
 	return lw.WatchFunc(options)
 }

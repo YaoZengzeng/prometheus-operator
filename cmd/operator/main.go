@@ -86,6 +86,7 @@ func (n namespaces) asSlice() []string {
 		ns = append(ns, k)
 	}
 	if len(ns) == 0 {
+		// 如果没有指定ns，则返回v1.NamespaceAll
 		ns = append(ns, v1.NamespaceAll)
 	}
 	return ns

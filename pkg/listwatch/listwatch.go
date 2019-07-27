@@ -97,6 +97,7 @@ func MultiNamespaceListerWatcher(namespaces []string, f func(string) cache.Liste
 		return f(namespaces[0])
 	}
 	var lws []cache.ListerWatcher
+	// 遍历namespaces，依次创建ListerWatcher
 	for _, n := range namespaces {
 		lws = append(lws, f(n))
 	}
@@ -105,6 +106,7 @@ func MultiNamespaceListerWatcher(namespaces []string, f func(string) cache.Liste
 
 // multiListerWatcher abstracts several cache.ListerWatchers, allowing them
 // to be treated as a single cache.ListerWatcher.
+// multiListerWatcher抽象了多个cache.ListerWatchers，允许它们被作为单个的cache.ListerWatcher对待
 type multiListerWatcher []cache.ListerWatcher
 
 // List implements the ListerWatcher interface.
@@ -133,6 +135,7 @@ func (mlw multiListerWatcher) List(options metav1.ListOptions) (runtime.Object, 
 	}
 	// Combine the resource versions so that the composite Watch method can
 	// distribute appropriate versions to each underlying Watch func.
+	// 结合resource versions，这样相关的Watch方法可以分发合适的版本到底层的Watch方法
 	l.ListMeta.ResourceVersion = strings.Join(resourceVersions, "/")
 	return &l, nil
 }
@@ -140,6 +143,8 @@ func (mlw multiListerWatcher) List(options metav1.ListOptions) (runtime.Object, 
 // Watch implements the ListerWatcher interface.
 // It returns a watch.Interface that combines the output from the
 // watch.Interface of every cache.ListerWatcher into a single result chan.
+// Watch实现了ListerWatcher接口
+// 它返回一个watch.Interface，它组合了底层的每个cache.ListerWatcher的watch.Interface到单个的result chan
 func (mlw multiListerWatcher) Watch(options metav1.ListOptions) (watch.Interface, error) {
 	resourceVersions := make([]string, len(mlw))
 	// Allow resource versions to be "".
@@ -155,6 +160,7 @@ func (mlw multiListerWatcher) Watch(options metav1.ListOptions) (watch.Interface
 
 // multiWatch abstracts multiple watch.Interface's, allowing them
 // to be treated as a single watch.Interface.
+// multiWatch抽象了多个watch.Interace，允许它们作为单个的watch.Interface
 type multiWatch struct {
 	result   chan watch.Event
 	stopped  chan struct{}
@@ -164,8 +170,11 @@ type multiWatch struct {
 // newMultiWatch returns a new multiWatch or an error if one of the underlying
 // Watch funcs errored. The length of []cache.ListerWatcher and []string must
 // match.
+// newMultiWatch返回一个新的multiWatch或者一个error，如果底层的Watch函数返回错误
+// []cache.ListerWatcher和[]string的长度必须相等
 func newMultiWatch(lws []cache.ListerWatcher, resourceVersions []string, options metav1.ListOptions) (*multiWatch, error) {
 	var (
+		// result用于传输事件watch.Event
 		result   = make(chan watch.Event)
 		stopped  = make(chan struct{})
 		stoppers []func()
@@ -177,6 +186,7 @@ func newMultiWatch(lws []cache.ListerWatcher, resourceVersions []string, options
 	for i, lw := range lws {
 		o := options.DeepCopy()
 		o.ResourceVersion = resourceVersions[i]
+		// 调用lws的Watch方法
 		w, err := lw.Watch(*o)
 		if err != nil {
 			return nil, err
@@ -194,6 +204,7 @@ func newMultiWatch(lws []cache.ListerWatcher, resourceVersions []string, options
 				select {
 				case result <- event:
 				case <-stopped:
+					// stopped channel被关闭，则直接返回
 					return
 				}
 			}
@@ -203,6 +214,7 @@ func newMultiWatch(lws []cache.ListerWatcher, resourceVersions []string, options
 
 	// result chan must be closed,
 	// once all event sender goroutines exited.
+	// 一旦所有的event sender goroutines退出了，result chan必须被关闭
 	go func() {
 		wg.Wait()
 		close(result)
@@ -223,6 +235,8 @@ func (mw *multiWatch) ResultChan() <-chan watch.Event {
 // Stop implements the watch.Interface interface.
 // It stops all of the underlying watch.Interfaces and closes the backing chan.
 // Can safely be called more than once.
+// 关闭所有底层的watch.Interfaces，并且关闭backing chan
+// 可以安全地被多次调用
 func (mw *multiWatch) Stop() {
 	select {
 	case <-mw.stopped:

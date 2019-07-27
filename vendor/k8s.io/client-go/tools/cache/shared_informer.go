@@ -90,8 +90,10 @@ func NewSharedIndexInformer(lw ListerWatcher, objType runtime.Object, defaultEve
 		processor:                       &sharedProcessor{clock: realClock},
 										 // DeletionHandlingMetaNamespaceKeyFunc是一个keyFunc，能够传入一个对象，得到它的key，一般为namespace/name的形式
 		indexer:                         NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, indexers),
+		// listerWatcher就是资源对象和API Server进行List & Watch的函数
 		listerWatcher:                   lw,
 		objectType:                      objType,
+		// resyncCheckPeriod和defaultEventHandlerResyncPeriod都是5min
 		resyncCheckPeriod:               defaultEventHandlerResyncPeriod,
 		defaultEventHandlerResyncPeriod: defaultEventHandlerResyncPeriod,
 		cacheMutationDetector:           NewCacheMutationDetector(fmt.Sprintf("%T", objType)),
@@ -154,6 +156,7 @@ type sharedIndexInformer struct {
 	// defaultEventHandlerResyncPeriod is the default resync period for any handlers added via
 	// AddEventHandler (i.e. they don't specify one and just want to use the shared informer's default
 	// value).
+	// defaultEventHandlerResyncPeriod是任何通过AddEventHandler添加的handlers的默认resync period
 	defaultEventHandlerResyncPeriod time.Duration
 	// clock allows for testability
 	clock clock.Clock
@@ -163,6 +166,7 @@ type sharedIndexInformer struct {
 
 	// blockDeltas gives a way to stop all event distribution so that a late event handler
 	// can safely join the shared informer.
+	// blockDeltas能够停止所有的event notification，因此之后的一个event handler能够安全地加入shared informer
 	blockDeltas sync.Mutex
 }
 
@@ -222,6 +226,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 
 		s.controller = New(cfg)
 		s.controller.(*controller).clock = s.clock
+		// 将s.started设置为true，表示已经SharedIndexInformer已经启动了
 		s.started = true
 	}()
 
@@ -237,6 +242,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	defer func() {
 		s.startedLock.Lock()
 		defer s.startedLock.Unlock()
+		// 退出之后，将s.stopped设置为true，表示不想要任何新的listeners
 		s.stopped = true // Don't want any new listeners
 	}()
 	s.controller.Run(stopCh)
@@ -312,12 +318,15 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 	defer s.startedLock.Unlock()
 
 	if s.stopped {
+		// 如果shared informer停止了，则Handler不再加入
 		klog.V(2).Infof("Handler %v was not added to shared informer because it has stopped already", handler)
 		return
 	}
 
 	if resyncPeriod > 0 {
+		// minimumResyncPeriod为1s
 		if resyncPeriod < minimumResyncPeriod {
+			// 如果minimumResyncPeriod太小，则调整为minimumResyncPeriod
 			klog.Warningf("resyncPeriod %d is too small. Changing it to the minimum allowed value of %d", resyncPeriod, minimumResyncPeriod)
 			resyncPeriod = minimumResyncPeriod
 		}
@@ -330,6 +339,8 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 				// if the event handler's resyncPeriod is smaller than the current resyncCheckPeriod, update
 				// resyncCheckPeriod to match resyncPeriod and adjust the resync periods of all the listeners
 				// accordingly
+				// 如果event handler的resyncPeriod小于当前的resyncCheckPeriod，更新resyncCheckPeriod来匹配resyncPeriod
+				// 并且相应地调整所有listeners的resync periods
 				s.resyncCheckPeriod = resyncPeriod
 				s.processor.resyncCheckPeriodChanged(resyncPeriod)
 			}
@@ -350,6 +361,10 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 	// 2. do a list against the store
 	// 3. send synthetic "Add" events to the new handler
 	// 4. unblock
+	// 为了能够将listener安全地加入，我们需要
+	// 1. 停止发送add/update/delete通知
+	// 2. 对store进行一次list
+	// 3. 向新的handler发送一系列的"Add" events
 	s.blockDeltas.Lock()
 	defer s.blockDeltas.Unlock()
 
@@ -369,14 +384,17 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	for _, d := range obj.(Deltas) {
 		switch d.Type {
 		case Sync, Added, Updated:
+			// 如果Delta的类型为Sync，则isSync为true
 			isSync := d.Type == Sync
 			s.cacheMutationDetector.AddObject(d.Object)
 			// 如果对象在indexer中存在，则更新indexer，并且分发到各个processor
 			if old, exists, err := s.indexer.Get(d.Object); err == nil && exists {
+				// 首先会对indexer进行更新
 				if err := s.indexer.Update(d.Object); err != nil {
 					return err
 				}
 				// 发送一个updateNotification
+				// 不管isSync是否为true，都进行发送
 				s.processor.distribute(updateNotification{oldObj: old, newObj: d.Object}, isSync)
 			} else {
 				// 否则在indexer中增加对象
@@ -397,6 +415,7 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	return nil
 }
 
+// sharedProcessor中包含多个processorListner
 type sharedProcessor struct {
 	listenersStarted bool
 	listenersLock    sync.RWMutex
@@ -412,12 +431,14 @@ func (p *sharedProcessor) addListener(listener *processorListener) {
 
 	p.addListenerLocked(listener)
 	if p.listenersStarted {
+		// 将listener的run和pop函数加入wait.Group
 		p.wg.Start(listener.run)
 		p.wg.Start(listener.pop)
 	}
 }
 
 func (p *sharedProcessor) addListenerLocked(listener *processorListener) {
+	// 同时在listeners和syncingListeners中加入listener
 	p.listeners = append(p.listeners, listener)
 	p.syncingListeners = append(p.syncingListeners, listener)
 }
@@ -439,12 +460,15 @@ func (p *sharedProcessor) distribute(obj interface{}, sync bool) {
 	}
 }
 
+// sharedProcessor的run函数启动各个listener的run和pop函数
+// 这两个函数会等待add函数传来notification并处理
 func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 	func() {
 		p.listenersLock.RLock()
 		defer p.listenersLock.RUnlock()
 		// 遍历sharedProcessor的各个listeners
 		for _, listener := range p.listeners {
+			// 启动listener的各个run和pop函数
 			p.wg.Start(listener.run)
 			p.wg.Start(listener.pop)
 		}
@@ -454,8 +478,10 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 	p.listenersLock.RLock()
 	defer p.listenersLock.RUnlock()
 	for _, listener := range p.listeners {
+		// 告诉.pop()函数停止，.pop()函数会让.run()停止
 		close(listener.addCh) // Tell .pop() to stop. .pop() will tell .run() to stop
 	}
+	// 等待所有的.pop()和.run()函数停止
 	p.wg.Wait() // Wait for all .pop() and .run() to stop
 }
 
@@ -501,15 +527,20 @@ type processorListener struct {
 	// pendingNotifications is an unbounded ring buffer that holds all notifications not yet distributed.
 	// There is one per listener, but a failing/stalled listener will have infinite pendingNotifications
 	// added until we OOM.
+	// pendingNotifications时一个没有限制的ring buffer，其中包含了所有未被分发的notifications
+	// 每个listener都有一个，但是一个failing/stalled listener会有着无限的pendingNotifications被添加直到OOM
 	// TODO: This is no worse than before, since reflectors were backed by unbounded DeltaFIFOs, but
 	// we should try to do something better.
 	pendingNotifications buffer.RingGrowing
 
 	// requestedResyncPeriod is how frequently the listener wants a full resync from the shared informer
+	// requestedResyncPeriod时listener从shared informer进行full resync的频率
 	requestedResyncPeriod time.Duration
 	// resyncPeriod is how frequently the listener wants a full resync from the shared informer. This
 	// value may differ from requestedResyncPeriod if the shared informer adjusts it to align with the
 	// informer's overall resync check period.
+	// resyncPeriod是listener从shared informer中进行一次full resync from的频率，它可能和requestResyncPeriod不同
+	// 如果shared informer将它调整为何informer的整个resync check period一致
 	resyncPeriod time.Duration
 	// nextResync is the earliest time the listener should get a full resync
 	nextResync time.Time
@@ -537,8 +568,11 @@ func (p *processorListener) add(notification interface{}) {
 	p.addCh <- notification
 }
 
+// processorListener的pop()和run()之间其实也存在一个缓存，即pendingNotifications
+// pop()会直接将notification放入pendingNotifications中，而run会从nextCh中读取notification
 func (p *processorListener) pop() {
 	defer utilruntime.HandleCrash()
+	// 让.run()停止运行
 	defer close(p.nextCh) // Tell .run() to stop
 
 	var nextCh chan<- interface{}
@@ -551,13 +585,17 @@ func (p *processorListener) pop() {
 			var ok bool
 			notification, ok = p.pendingNotifications.ReadOne()
 			if !ok { // Nothing to pop
+				// 如果pendingNotifications中没有notification需要pop
+				// 则直接关闭当前的select case
 				nextCh = nil // Disable this select case
 			}
 		case notificationToAdd, ok := <-p.addCh:
+			// 从p.addCh中读取需要添加的notification
 			if !ok {
 				return
 			}
 			if notification == nil { // No notification to pop (and pendingNotifications is empty)
+				// 如果当前没有Notificatio需要Pop（并且pendingNotifications为空）
 				// Optimize the case - skip adding to pendingNotifications
 				notification = notificationToAdd
 				// 将nextCh设置为p.nextCh
@@ -594,6 +632,7 @@ func (p *processorListener) run() {
 				}
 			}
 			// the only way to get here is if the p.nextCh is empty and closed
+			// 到达这里的唯一方法是
 			return true, nil
 		})
 
@@ -606,6 +645,7 @@ func (p *processorListener) run() {
 
 // shouldResync deterimines if the listener needs a resync. If the listener's resyncPeriod is 0,
 // this always returns false.
+// shouldResync决定是否listener需要一个resync，如果listener的resyncPeriod为0，则总是返回false
 func (p *processorListener) shouldResync(now time.Time) bool {
 	p.resyncLock.Lock()
 	defer p.resyncLock.Unlock()
@@ -621,6 +661,7 @@ func (p *processorListener) determineNextResync(now time.Time) {
 	p.resyncLock.Lock()
 	defer p.resyncLock.Unlock()
 
+	// 设置nextResync为当前时间加上resyncPeriod
 	p.nextResync = now.Add(p.resyncPeriod)
 }
 

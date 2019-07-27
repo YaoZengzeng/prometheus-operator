@@ -54,6 +54,7 @@ const (
 )
 
 // Event represents a single event to a watched resource.
+// Event代表了对于一个watched resource的单个event
 // +k8s:deepcopy-gen=true
 type Event struct {
 	Type EventType
@@ -63,6 +64,10 @@ type Event struct {
 	//  * If Type is Deleted: the state of the object immediately before deletion.
 	//  * If Type is Error: *api.Status is recommended; other types may make sense
 	//    depending on context.
+	// Object是：
+	//	* 如果类型是Added或者Modified：则是对象的新状态
+	//	* 如果类型是Deleted：则是对象在删除之前的状态
+	//	* 如果类型为Error：则要求有*api.Stateus，其他类型依赖上下文，可能有意义
 	Object runtime.Object
 }
 

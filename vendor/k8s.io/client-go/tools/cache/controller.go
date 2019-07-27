@@ -76,6 +76,8 @@ type Config struct {
 // ShouldResyncFunc is a type of function that indicates if a reflector should perform a
 // resync or not. It can be used by a shared informer to support multiple event handlers with custom
 // resync periods.
+// ShouldResyncFunc是一个函数类型，它用来表示是否一个reflector应该执行resync，它可以被shared informer用来支持多个有着
+// 自定义resync periods的event handlers
 type ShouldResyncFunc func() bool
 
 // ProcessFunc processes a single object.
@@ -90,6 +92,7 @@ type controller struct {
 	clock          clock.Clock
 }
 
+// Controller包含三个接口，Run，HasSynced以及LastSyncResourceVersion
 type Controller interface {
 	Run(stopCh <-chan struct{})
 	HasSynced() bool
@@ -138,6 +141,7 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 	wg.StartWithChannel(stopCh, r.Run)
 
 	// 启动controller的processLoop
+	// processLoop不断地从队列中pop item并交由processor进行处理
 	wait.Until(c.processLoop, time.Second, stopCh)
 }
 
@@ -166,6 +170,7 @@ func (c *controller) LastSyncResourceVersion() string {
 // also be helpful.
 func (c *controller) processLoop() {
 	for {
+		// c.config.Process会从队列中获取item并分发到各个listener中
 		obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
 		if err != nil {
 			if err == FIFOClosedError {
@@ -173,6 +178,7 @@ func (c *controller) processLoop() {
 			}
 			if c.config.RetryOnError {
 				// This is the safe way to re-enqueue.
+				// 这是重新入队的安全的方式
 				c.config.Queue.AddIfNotPresent(obj)
 			}
 		}
@@ -196,6 +202,8 @@ func (c *controller) processLoop() {
 //      it will get an object of type DeletedFinalStateUnknown. This can
 //      happen if the watch is closed and misses the delete event and we don't
 //      notice the deletion until the subsequent re-list.
+//	* OnDelete我们会获得item的最终状态，如果知道的话，否则会得到类型DeletedFinalStateUnknown
+//		这可能在watch被关闭并且遗漏掉delete event的时候发生，因此我们不会注意到删除直到下一次的re-list
 type ResourceEventHandler interface {
 	OnAdd(obj interface{})
 	OnUpdate(oldObj, newObj interface{})
@@ -205,6 +213,8 @@ type ResourceEventHandler interface {
 // ResourceEventHandlerFuncs is an adaptor to let you easily specify as many or
 // as few of the notification functions as you want while still implementing
 // ResourceEventHandler.
+// ResourceEventHandlerFunc是一个adaptor，能够让你指定任意的notification functions
+// 同时依旧实现了ResourceEventHandler
 type ResourceEventHandlerFuncs struct {
 	AddFunc    func(obj interface{})
 	UpdateFunc func(oldObj, newObj interface{})

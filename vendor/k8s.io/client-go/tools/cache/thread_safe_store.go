@@ -265,6 +265,7 @@ func (c *threadSafeMap) updateIndices(oldObj interface{}, newObj interface{}, ke
 		c.deleteFromIndices(oldObj, key)
 	}
 	// 一般也就一个indexer，name为"namespace"，indexFunc用来获取对象的namespace
+	// 当c.indexers为空时，threadSafeMap就只是实现了Store
 	for name, indexFunc := range c.indexers {
 		// 调用indexFunc找出对象的indexValues
 		indexValues, err := indexFunc(newObj)

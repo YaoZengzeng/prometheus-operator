@@ -204,6 +204,7 @@ var ErrWaitTimeout = errors.New("timed out waiting for the condition")
 
 // ConditionFunc returns true if the condition is satisfied, or an error
 // if the loop should be aborted.
+// ConditionFunc返回true，如果condition满足，或者一个error如果loop应该被中止
 type ConditionFunc func() (done bool, err error)
 
 // Backoff holds parameters applied to a Backoff function.

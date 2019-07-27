@@ -265,6 +265,8 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 				WatchFunc: mclient.MonitoringV1().PrometheusRules(namespace).Watch,
 			}
 		}),
+		// cache.Indexers用于将一个索引类型的名字对映到相应的索引类型的函数
+		// resyncPeriod为5分钟
 		&monitoringv1.PrometheusRule{}, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
@@ -337,6 +339,7 @@ func (c *Operator) RegisterMetrics(r prometheus.Registerer, reconcileErrorsCount
 }
 
 // waitForCacheSync waits for the informers' caches to be synced.
+// waitForCacheSync等待informers的caches被同步
 func (c *Operator) waitForCacheSync(stopc <-chan struct{}) error {
 	ok := true
 	informers := []struct {

@@ -161,6 +161,7 @@ type ObjectMeta struct {
 
 	// A sequence number representing a specific generation of the desired state.
 	// Populated by the system. Read-only.
+	// 一个序数代表指定状态的specific generation
 	// +optional
 	Generation int64 `json:"generation,omitempty" protobuf:"varint,7,opt,name=generation"`
 
@@ -344,9 +345,11 @@ type ListOptions struct {
 
 	// A selector to restrict the list of returned objects by their labels.
 	// Defaults to everything.
+	// 一个通过label过滤返回的返回对象的selector，默认为everything
 	// +optional
 	LabelSelector string `json:"labelSelector,omitempty" protobuf:"bytes,1,opt,name=labelSelector"`
 	// A selector to restrict the list of returned objects by their fields.
+	// 一个通过fields过滤返回对象的selector，默认为everything
 	// Defaults to everything.
 	// +optional
 	FieldSelector string `json:"fieldSelector,omitempty" protobuf:"bytes,2,opt,name=fieldSelector"`
@@ -355,14 +358,21 @@ type ListOptions struct {
 
 	// Watch for changes to the described resources and return them as a stream of
 	// add, update, and remove notifications. Specify resourceVersion.
+	// 监听某个资源对象的变更并且将它们作为一系列的add, update以及remove notifications返回
+	// 指定resourceVersion
 	// +optional
 	Watch bool `json:"watch,omitempty" protobuf:"varint,3,opt,name=watch"`
 	// When specified with a watch call, shows changes that occur after that particular version of a resource.
 	// Defaults to changes from the beginning of history.
+	// 当在一个watch call中指定，显示在该版本之后的变更
 	// When specified for list:
 	// - if unset, then the result is returned from remote storage based on quorum-read flag;
 	// - if it's 0, then we simply return what we currently have in cache, no guarantee;
 	// - if set to non zero, then the result is at least as fresh as given rv.
+	// 当在list中指定时：
+	// - 如果未指定，则从remote storage中返回的result基于quorum-read flag
+	// - 如果设置为0，则返回当前cache中有的值，不做任何额外保证
+	// - 如果设置为zero，则至少返回和给定的rv一样fresh的结果
 	// +optional
 	ResourceVersion string `json:"resourceVersion,omitempty" protobuf:"bytes,4,opt,name=resourceVersion"`
 	// Timeout for the list/watch call.
