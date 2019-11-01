@@ -279,9 +279,11 @@ func ExponentialBackoff(backoff Backoff, condition ConditionFunc) error {
 
 // Poll tries a condition func until it returns true, an error, or the timeout
 // is reached.
+// Poll不断运行condition func直到它返回true，error或者达到timeout
 //
 // Poll always waits the interval before the run of 'condition'.
 // 'condition' will always be invoked at least once.
+// Poll在运行'condition'之前总是会等待interval，'condition'至少会被调用一次
 //
 // Some intervals may be missed if the condition takes too long or the time
 // window is too short.

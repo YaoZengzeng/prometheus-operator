@@ -42,6 +42,7 @@
 // even if it is no changes.
 //
 // A basic example of configuration template with environment variables:
+// external_labels的确是reloader的目的之一
 //
 //   global:
 //     external_labels:
@@ -97,6 +98,8 @@ var firstGzipBytes = []byte{0x1f, 0x8b, 0x08}
 // If cfgOutputFile is not empty the config file will be decompressed if needed, environment variables
 // will be substituted and the output written into the given path. Prometheus should then use
 // cfgOutputFile as its config file path.
+// 如果cfgOutputFile不为空，config file会被解压，环境变量会被替换，output会被写入指定的路径，Prometheus应该使用cfgOutputFile作为
+// 配置文件路径
 func New(logger log.Logger, reloadURL *url.URL, cfgFile string, cfgOutputFile string, ruleDirs []string) *Reloader {
 	if logger == nil {
 		logger = log.NewNopLogger()
@@ -107,6 +110,7 @@ func New(logger log.Logger, reloadURL *url.URL, cfgFile string, cfgOutputFile st
 		cfgFile:       cfgFile,
 		cfgOutputFile: cfgOutputFile,
 		ruleDirs:      ruleDirs,
+		// 3分钟watch一次
 		watchInterval: 3 * time.Minute,
 		retryInterval: 5 * time.Second,
 	}
@@ -120,6 +124,8 @@ func (r *Reloader) WithWatchInterval(duration time.Duration) {
 // Watch starts to watch periodically the config file and rules and process them until the context
 // gets canceled. Config file gets env expanded if cfgOutputFile is specified and reload is trigger if
 // config or rules changed.
+// Watch开始阶段性地监听config file以及rules并且处理它们直到context被canceled
+// 如果指定了cfgOutputFile的时候，Config的env会被扩展并且reload会被触发，除非config或者rules改变了
 // Watch watchers periodically based on r.watchInterval.
 // For config file it watches it directly as well via fsnotify.
 // It watches rule dirs as well, but lot's of edge cases are missing, so rely on interval mostly.
@@ -132,6 +138,7 @@ func (r *Reloader) Watch(ctx context.Context) error {
 
 	watchables := map[string]struct{}{}
 	if r.cfgFile != "" {
+		// 监听config file
 		watchables[filepath.Dir(r.cfgFile)] = struct{}{}
 		if err := watcher.Add(r.cfgFile); err != nil {
 			return errors.Wrapf(err, "add config file %s to watcher", r.cfgFile)
@@ -204,6 +211,7 @@ func (r *Reloader) apply(ctx context.Context) error {
 			}
 
 			// detect and extract gzipped file
+			// 检测是否使用gzipped进行压缩
 			if bytes.Equal(b[0:3], firstGzipBytes) {
 				zr, err := gzip.NewReader(bytes.NewReader(b))
 				if err != nil {
@@ -217,6 +225,7 @@ func (r *Reloader) apply(ctx context.Context) error {
 				}
 			}
 
+			// 将配置文件中的环境变量进行替换
 			b, err = expandEnv(b)
 			if err != nil {
 				return errors.Wrap(err, "expand environment variables")
@@ -226,6 +235,7 @@ func (r *Reloader) apply(ctx context.Context) error {
 			defer func() {
 				_ = os.Remove(tmpFile)
 			}()
+			// 将配置文件写入临时文件，再Rename
 			if err := ioutil.WriteFile(tmpFile, b, 0666); err != nil {
 				return errors.Wrap(err, "write file")
 			}
@@ -350,6 +360,7 @@ func ReloadURLFromBase(u *url.URL) *url.URL {
 
 var envRe = regexp.MustCompile(`\$\(([a-zA-Z_0-9]+)\)`)
 
+// 将所有环境变量进行替换
 func expandEnv(b []byte) (r []byte, err error) {
 	r = envRe.ReplaceAllFunc(b, func(n []byte) []byte {
 		if err != nil {
@@ -357,6 +368,7 @@ func expandEnv(b []byte) (r []byte, err error) {
 		}
 		n = n[2 : len(n)-1]
 
+		// 查询对应的Environment是否存在
 		v, ok := os.LookupEnv(string(n))
 		if !ok {
 			err = errors.Errorf("found reference to unset environment variable %q", n)

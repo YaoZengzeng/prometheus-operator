@@ -59,6 +59,7 @@ func WaitForCRDReady(listFunc func(opts metav1.ListOptions) (runtime.Object, err
 			}
 			return false, errors.Wrap(err, "failed to list CRD")
 		}
+		// 直到能够运行List函数为止
 		return true, nil
 	})
 
@@ -198,6 +199,7 @@ func NewCustomResourceDefinition(crdKind monitoringv1.CrdKind, group string, lab
 
 // SanitizeVolumeName ensures that the given volume name is a valid DNS-1123 label
 // accepted by Kubernetes.
+// SanitizeVolumeName确保给定的volume name是能被Kubernetes接受的
 func SanitizeVolumeName(name string) string {
 	name = strings.ToLower(name)
 	name = invalidDNS1123Characters.ReplaceAllString(name, "-")

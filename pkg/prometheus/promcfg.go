@@ -92,6 +92,8 @@ func buildExternalLabels(p *v1.Prometheus) yaml.MapSlice {
 
 	// Use "prometheus" external label name by default if field is missing.
 	// Do not add external label if field is set to empty string.
+	// 如果没有相应的字段，则默认使用"prometheus"作为external label name
+	// 如果相应的字段被设置为empty，则不增加external label
 	prometheusExternalLabelName := "prometheus"
 	if p.Spec.PrometheusExternalLabelName != nil {
 		if *p.Spec.PrometheusExternalLabelName != "" {
@@ -117,6 +119,7 @@ func buildExternalLabels(p *v1.Prometheus) yaml.MapSlice {
 	}
 
 	if replicaExternalLabelName != "" {
+		// 将replicaExternalLabelName设置为Pod Name
 		m[replicaExternalLabelName] = "$(POD_NAME)"
 	}
 
@@ -162,6 +165,7 @@ func (cg *configGenerator) generateConfig(
 		Value: yaml.MapSlice{
 			{Key: "evaluation_interval", Value: evaluationInterval},
 			{Key: "scrape_interval", Value: scrapeInterval},
+			// 创建external labels
 			{Key: "external_labels", Value: buildExternalLabels(p)},
 		},
 	})

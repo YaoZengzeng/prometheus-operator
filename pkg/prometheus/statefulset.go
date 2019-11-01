@@ -233,6 +233,7 @@ func makeEmptyConfigurationSecret(p *monitoringv1.Prometheus, config Config) (*v
 
 	// 创建一个empty secret
 	s.ObjectMeta.Annotations = map[string]string{
+		// 设置annotation，设置"empty"为"true"
 		"empty": "true",
 	}
 
@@ -258,6 +259,7 @@ func makeConfigSecret(p *monitoringv1.Prometheus, config Config) *v1.Secret {
 			},
 		},
 		Data: map[string][]byte{
+			// Secret的一个字段的名字为prometheus.yaml.gz
 			configFilename: {},
 		},
 	}
@@ -280,6 +282,7 @@ func makeStatefulSetService(p *monitoringv1.Prometheus, config Config) *v1.Servi
 			}),
 		},
 		Spec: v1.ServiceSpec{
+			// 创建Headless Service
 			ClusterIP: "None",
 			Ports: []v1.ServicePort{
 				{
@@ -359,6 +362,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			}
 		}
 		promArgs = append(promArgs,
+			// 配置文件的路径为/etc/prometheus/config_out/prometheus.env.yaml
 			fmt.Sprintf("-config.file=%s", path.Join(confOutDir, configEnvsubstFilename)),
 			fmt.Sprintf("-storage.tsdb.path=%s", storageDir),
 			retentionTimeFlag+p.Spec.Retention,
@@ -514,6 +518,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	// 初始化promVolumeMounts
 	promVolumeMounts := []v1.VolumeMount{
 		{
+			// prometheus挂载的事config-out，而不是config
 			Name:      "config-out",
 			ReadOnly:  true,
 			MountPath: confOutDir,
@@ -750,6 +755,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		envVars := []v1.EnvVar{
 			{
 				// Necessary for '--cluster.address', '--grpc-address' flags
+				// 设置环境变量POD_IP
 				Name: "POD_IP",
 				ValueFrom: &v1.EnvVarSource{
 					FieldRef: &v1.ObjectFieldSelector{
@@ -909,6 +915,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			Image: c.PrometheusConfigReloaderImage,
 			Env: []v1.EnvVar{
 				{
+					// 设置环境变量
 					Name: "POD_NAME",
 					ValueFrom: &v1.EnvVarSource{
 						FieldRef: &v1.ObjectFieldSelector{FieldPath: "metadata.name"},
@@ -922,6 +929,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		},
 	}, additionalContainers...)
 
+	// 将基本containers与用户指定的containers进行合并
 	containers, err := k8sutil.MergePatchContainers(operatorContainers, p.Spec.Containers)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to merge containers spec")

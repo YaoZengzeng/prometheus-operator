@@ -114,6 +114,7 @@ type PrometheusSpec struct {
 	// see http://kubernetes.io/docs/user-guide/images#specifying-imagepullsecrets-on-a-pod
 	ImagePullSecrets []v1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	// Number of instances to deploy for a Prometheus deployment.
+	// 部署一个Prometheus deployment的实例数目
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Name of Prometheus external label used to denote replica name.
 	// Defaults to the value of `prometheus_replica`. External label will
@@ -216,6 +217,9 @@ type PrometheusSpec struct {
 	// containers is entirely outside the scope of what the maintainers will support and by doing
 	// so, you accept that this behaviour may break at any time without notice.
 	// 
+	// Containers允许注入额外的containers或者修改operator生成的containers
+	// 当前生成的container的名字为`prometheus`，`prometheus-config-reloader`, `rules-configmap-reloader`以及
+	// `thanos-sidecar`
 	Containers []v1.Container `json:"containers,omitempty"`
 	// AdditionalScrapeConfigs allows specifying a key of a Secret containing
 	// additional Prometheus scrape configurations. Scrape configurations

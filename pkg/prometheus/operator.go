@@ -57,6 +57,7 @@ const (
 
 // Operator manages life cycle of Prometheus deployments and
 // monitoring configurations.
+// Operator管理Prometheus deployments的生命周期并且监听配置
 type Operator struct {
 	kclient   kubernetes.Interface
 	mclient   monitoringclient.Interface
@@ -168,16 +169,19 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 		return nil, errors.Wrap(err, "instantiating cluster config failed")
 	}
 
+	// 创建通用的Kubernetes Client
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating kubernetes client failed")
 	}
 
+	// 创建CRD Client
 	crdclient, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating apiextensions client failed")
 	}
 
+	// 创建Monitoring Client
 	mclient, err := monitoringclient.NewForConfig(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating monitoring client failed")
@@ -304,6 +308,8 @@ func New(conf Config, logger log.Logger) (*Operator, error) {
 	// should resync. If the unprivileged ListerWatcher is used, then the
 	// informer must resync more often because it cannot watch for
 	// namespace changes.
+	// nsResyncPeriod用于控制namespace informer同步的频率，如果使用了unprivileged ListerWatcher
+	// 那么informer需要resync更加频繁，因为它不能监听namespace的变更
 	nsResyncPeriod := 15 * time.Second
 	// If the only namespace is v1.NamespaceAll, then the client must be
 	// privileged and a regular cache.ListWatch will be used. In this case
@@ -371,6 +377,7 @@ func (c *Operator) waitForCacheSync(stopc <-chan struct{}) error {
 }
 
 // addHandlers adds the eventhandlers to the informers.
+// addHandlers在eventhandlers中增加informers
 func (c *Operator) addHandlers() {
 	c.promInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.handlePrometheusAdd,
@@ -410,11 +417,13 @@ func (c *Operator) addHandlers() {
 }
 
 // Run the controller.
+// 运行Controller
 func (c *Operator) Run(stopc <-chan struct{}) error {
 	defer c.queue.ShutDown()
 
 	errChan := make(chan error)
 	go func() {
+		// 首先和Server进行交互，即验证和Kubernetes Server的连接
 		v, err := c.kclient.Discovery().ServerVersion()
 		if err != nil {
 			errChan <- errors.Wrap(err, "communicating with server failed")
@@ -423,6 +432,7 @@ func (c *Operator) Run(stopc <-chan struct{}) error {
 		level.Info(c.logger).Log("msg", "connection established", "cluster-version", v)
 
 		if c.config.ManageCRDs {
+			// 创建CRD
 			if err := c.createCRDs(); err != nil {
 				errChan <- errors.Wrap(err, "creating CRDs failed")
 				return
@@ -739,6 +749,7 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 	r := obj.(*monitoringv1.PrometheusRule)
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("PrometheusRule added: %v", r))
 
+	// 找到Prometheus Rule的Label Selector
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: r.Labels})
 	if err != nil {
 		level.Error(c.logger).Log("error", fmt.Sprintf("LabelSelectorAsSelector failed: %v", err))
@@ -750,6 +761,7 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 		sset := obj.(*appsv1.StatefulSet)
 		sset = sset.DeepCopy()
 		ssets = append(ssets, sset))
+		// 找到所有满足条件的statefulSet Key
 		ssetsKeys = append(ssetsKeys, fmt.Sprintf("%v/%v", sset.Namespace, sset.Name))
 	})
 	if err != nil {
@@ -760,6 +772,7 @@ func (c *Operator) handleRuleAdd(obj interface{}) {
 	level.Debug(c.logger).Log("msg", fmt.Sprintf("List all statefulsets: %v", ssetsKeys))
 
 	for _, sset := range ssets {
+		// 为符合Selector的StatefulSet创建或者更新Rule ConfigMap
 		ruleConfigMapNames, err := c.createOrUpdateRuleConfigMapsNew(sset)
 		if err != nil {
 			level.Error(c.logger).Log("error", fmt.Sprintf("createOrUpdateRuleConfigMapsNew() for %v failed: %v", sset.Name, err))
@@ -974,6 +987,8 @@ func (c *Operator) enqueueForNamespace(nsName string) {
 // worker runs a worker thread that just dequeues items, processes them, and
 // marks them done. It enforces that the syncHandler is never invoked
 // concurrently with the same key.
+// workers运行一个worker thread，它只是将items出队列，处理它们并且将它们标记为done
+// 它确保syncHandler从不会被同一个key并行运行
 func (c *Operator) worker() {
 	for c.processNextWorkItem() {
 	}
@@ -1091,10 +1106,7 @@ func (c *Operator) sync(key string) error {
 	p := obj.(*monitoringv1.Prometheus)
 	p = p.DeepCopy()
 	p.APIVersion = monitoringv1.SchemeGroupVersion.String()
-	p.Kind = monitoringv1.Prometh
-
-
-	eusesKind
+	p.Kind = monitoringv1.PrometheusesKind
 
 	if p.Spec.Paused {
 		return nil
@@ -1109,14 +1121,17 @@ func (c *Operator) sync(key string) error {
 
 	// If no service monitor selectors are configured, the user wants to
 	// manage configuration themselves.
+	// 如果没有配置monitor selector，则说明用户想要自己进行配置
 	if p.Spec.ServiceMonitorSelector != nil {
 		// We just always regenerate the configuration to be safe.
+		// 为了安全，总是重新生成配置
 		if err := c.createOrUpdateConfigurationSecret(p, ruleConfigMapNames); err != nil {
 			return errors.Wrap(err, "creating config failed")
 		}
 	}
 
 	// Create empty Secret if it doesn't exist. See comment above.
+	// 创建empty Secret，如果不存在的话
 	s, err := makeEmptyConfigurationSecret(p, c.config)
 	if err != nil {
 		return errors.Wrap(err, "generating empty config secret failed")
@@ -1124,6 +1139,7 @@ func (c *Operator) sync(key string) error {
 	sClient := c.kclient.CoreV1().Secrets(p.Namespace)
 	_, err = sClient.Get(s.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
+		// 如果empty config不存在，则创建之
 		if _, err := c.kclient.CoreV1().Secrets(p.Namespace).Create(s); err != nil && !apierrors.IsAlreadyExists(err) {
 			return errors.Wrap(err, "creating empty config file failed")
 		}
@@ -1133,6 +1149,7 @@ func (c *Operator) sync(key string) error {
 	}
 
 	// Create governing service if it doesn't exist.
+	// 创建governing service，如果不存在的话
 	svcClient := c.kclient.CoreV1().Services(p.Namespace)
 	if err := k8sutil.CreateOrUpdateService(svcClient, makeStatefulSetService(p, c.config)); err != nil {
 		return errors.Wrap(err, "synchronizing governing service failed")
@@ -1140,6 +1157,7 @@ func (c *Operator) sync(key string) error {
 
 	ssetClient := c.kclient.AppsV1().StatefulSets(p.Namespace)
 	// Ensure we have a StatefulSet running Prometheus deployed.
+	// 确保有一个StatefulSet运行我们部署的Prometheus
 	obj, exists, err = c.ssetInf.GetIndexer().GetByKey(prometheusKeyToStatefulSetKey(key))
 	if err != nil {
 		return errors.Wrap(err, "retrieving statefulset failed")
@@ -1150,12 +1168,14 @@ func (c *Operator) sync(key string) error {
 		return err
 	}
 
+	// 创建StatefulSet
 	sset, err := makeStatefulSet(*p, &c.config, ruleConfigMapNames, newSSetInputHash)
 	if err != nil {
 		return errors.Wrap(err, "making statefulset failed")
 	}
 
 	if !exists {
+		// 如果StatefulSet不存在，则创建之
 		level.Debug(c.logger).Log("msg", "no current Prometheus statefulset found")
 		level.Debug(c.logger).Log("msg", "creating Prometheus statefulset")
 		if _, err := ssetClient.Create(sset); err != nil {
@@ -1164,6 +1184,7 @@ func (c *Operator) sync(key string) error {
 		return nil
 	}
 
+	// 将StatefulSet的Input Hash Name存放在Annotation中
 	oldSSetInputHash := obj.(*appsv1.StatefulSet).ObjectMeta.Annotations[sSetInputHashName]
 	if newSSetInputHash == oldSSetInputHash {
 		level.Debug(c.logger).Log("msg", "new statefulset generation inputs match current, skipping any actions")
@@ -1620,6 +1641,7 @@ func (c *Operator) listMatchingNamespaces(selector labels.Selector) ([]string, e
 
 func (c *Operator) createCRDs() error {
 	crds := []*extensionsobj.CustomResourceDefinition{
+		// 创建四种自定义资源对象
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.Prometheus, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.ServiceMonitor, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
 		k8sutil.NewCustomResourceDefinition(c.config.CrdKinds.PodMonitor, c.config.CrdGroup, c.config.Labels.LabelsMap, c.config.EnableValidation),
@@ -1695,6 +1717,7 @@ func (c *Operator) createCRDs() error {
 	}
 
 	for _, crdListFunc := range crdListFuncs {
+		// 等待CRD创建完成
 		err := k8sutil.WaitForCRDReady(crdListFunc.listFunc)
 		if err != nil {
 			return errors.Wrapf(err, "waiting for %v crd failed", crdListFunc.name)

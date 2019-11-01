@@ -32,7 +32,9 @@ import (
 const (
 	logFormatLogfmt                     = "logfmt"
 	logFormatJson                       = "json"
+	// 将STATEFULSET_ORDINAL_NUMBER设置为本pod的序列号
 	statefulsetOrdinalEnvvar            = "STATEFULSET_ORDINAL_NUMBER"
+	// 从环境变量中获取pod在statefulset的序号
 	statefulsetOrdinalFromEnvvarDefault = "POD_NAME"
 )
 
@@ -49,6 +51,7 @@ func main() {
 	cfgFile := app.Flag("config-file", "config file watched by the reloader").
 		String()
 
+	// 用环境变量替换后的配置文件的输出文件
 	cfgSubstFile := app.Flag("config-envsubst-file", "output file for environment variable substituted config file").
 		String()
 
@@ -93,6 +96,7 @@ func main() {
 		rel := reloader.New(logger, *reloadURL, *cfgFile, *cfgSubstFile, []string{})
 
 		g.Add(func() error {
+			// 调用reloader进行watch
 			return rel.Watch(ctx)
 		}, func(error) {
 			cancel()
